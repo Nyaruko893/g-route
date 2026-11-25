@@ -1,0 +1,41 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "google-ai-route-diag",
+  "main": "worker/index.ts",
+  "compatibility_date": "2026-05-01",
+  "workers_dev": true,
+  "vars": {
+    "GITHUB_REPO_URL": "https://github.com/Nyaruko893/g-route"
+  },
+  "rules": [
+    {
+      "type": "Text",
+      "globs": ["**/*.sh", "**/*.ps1"],
+      "fallthrough": false
+    }
+  ],
+  "assets": {
+    "directory": "./dist",
+    "binding": "ASSETS",
+    "not_found_handling": "single-page-application",
+    "run_worker_first": ["/api/*", "/sh", "/ps", "/check.sh", "/check.ps1"]
+  },
+  "ratelimits": [
+    {
+      "name": "RL_BASELINE",
+      "namespace_id": "1001",
+      "simple": {
+        "limit": 20,
+        "period": 60
+      }
+    },
+    {
+      "name": "RL_IP_META",
+      "namespace_id": "1002",
+      "simple": {
+        "limit": 30,
+        "period": 60
+      }
+    }
+  ]
+}

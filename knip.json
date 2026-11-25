@@ -1,0 +1,11 @@
+{
+  "$schema": "https://unpkg.com/knip@5/schema.json",
+  "project": [
+    "src/**/*.{ts,svelte}",
+    "worker/**/*.ts",
+    "shared/**/*.ts"
+  ],
+  "ignore": [
+    "worker/raw.d.ts"
+  ]
+}

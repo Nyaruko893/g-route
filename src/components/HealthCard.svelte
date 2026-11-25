@@ -2,7 +2,9 @@
   import { encodeReportPayload, type CliReportV1 } from '../../shared/report-codec';
   import {
     buildReportMarkdown,
+    splitExitTag,
     type CellTone,
+    type ExitSlotColor,
     type ReportDiagnosis,
   } from '../../shared/report-diagnosis';
   import { renderReportCardPngBlob, resolveEffectiveDarkTheme } from '../lib/card-export';
@@ -42,6 +44,22 @@
     if (tone === 'diff') return 'tag tag-diff';
     if (tone === 'leak') return 'tag tag-leak';
     return 'tag tag-wait';
+  }
+
+  function exitClass(color: ExitSlotColor): string {
+    if (color === 'cn') return 'exit-pill exit-cn';
+    if (color === 'a') return 'exit-pill exit-a';
+    if (color === 'b') return 'exit-pill exit-b';
+    if (color === 'c') return 'exit-pill exit-c';
+    if (color === 'd') return 'exit-pill exit-d';
+    return 'exit-pill exit-unk';
+  }
+
+  function safetyPrefix(tone: CellTone): string {
+    if (tone === 'ok') return '✓ ';
+    if (tone === 'leak') return '✕ ';
+    if (tone === 'diff') return '! ';
+    return '';
   }
 
   function tierTagClass(): string {
@@ -110,7 +128,7 @@
         <span class="tag tag-diff">[示例样本]</span>
       {/if}
       <span class="mono head-meta">
-        {diag.modeLabel}
+        {diag.transportLabel}
         {#if report.os}
           · {report.os}
         {/if}
@@ -206,6 +224,58 @@
     </div>
   </div>
 
+  {#if diag.routeClusters.length > 0}
+    <section class="radar-band" aria-label="6 桶分流拓扑雷达">
+      <div class="radar-head mono">
+        <span>[01] 6 桶分流拓扑雷达 · 自动出口聚类</span>
+        <span>共检出 {diag.routeClusters.filter((c) => !c.isCnDirect).length} 路海外出口</span>
+      </div>
+      <div class="table-wrap">
+        <table class="radar-table">
+          <thead>
+            <tr>
+              <th style="width: 14%">出口槽</th>
+              <th style="width: 34%">出口 IP / ASN 归属</th>
+              <th style="width: 40%">命中业务桶</th>
+              <th style="width: 12%; text-align: right">平均 RTT</th>
+            </tr>
+          </thead>
+          <tbody>
+            {#each diag.routeClusters as cl (cl.slot + cl.ip)}
+              <tr>
+                <td><span class={`mono ${exitClass(cl.slotColor)}`}>{cl.slot}</span></td>
+                <td>
+                  <div class="mono radar-ip">
+                    {cl.ip}
+                    {#if cl.asn}
+                      <span class="geo-asn">· AS{cl.asn}</span>
+                    {/if}
+                  </div>
+                  <div class="radar-org">{cl.org} [{cl.kindLabel}]</div>
+                </td>
+                <td class="radar-buckets">{cl.buckets.join(' / ')}</td>
+                <td class="mono radar-ms">{cl.avgMs !== null ? `${cl.avgMs} ms` : '--'}</td>
+              </tr>
+            {/each}
+          </tbody>
+        </table>
+      </div>
+      {#if diag.routeAlarms.length > 0}
+        <div class="alarm-list">
+          {#each diag.routeAlarms as al (al.id)}
+            <div class="alarm-item">
+              <span class={toneClass(al.tone)}>
+                {al.tone === 'leak' ? '[告警]' : al.tone === 'diff' ? '[提示]' : '[分流]'}
+              </span>
+              <strong>{al.title}</strong>
+              <span class="alarm-detail">{al.detail}</span>
+            </div>
+          {/each}
+        </div>
+      {/if}
+    </section>
+  {/if}
+
   <div class="table-wrap">
     <table class="svc-table">
       <thead>
@@ -215,10 +285,10 @@
             <th style="width: 36%">IPv4 ({report.v4?.ip ?? ''})</th>
             <th style="width: 36%">IPv6 ({report.v6?.ip ?? ''})</th>
           {:else}
-            <th style="width: 30%">
-              实测结论 ({report.v4 ? `IPv4 ${report.v4.ip ?? ''}` : `IPv6 ${report.v6?.ip ?? ''}`})
+            <th style="width: 28%">
+              实测结论 ({report.v4 ? 'IPv4' : 'IPv6'})
             </th>
-            <th style="width: 42%">真值细节</th>
+            <th style="width: 44%">实测出口与真值细节</th>
           {/if}
         </tr>
       </thead>
@@ -234,8 +304,10 @@
               <td>
                 {#if row.v4}
                   <div class="cell-stack">
-                    <span class={toneClass(row.v4.tone)}>{row.v4.badge}</span>
-                    <span class="cell-detail">{row.v4.detail}</span>
+                    <span class={toneClass(row.v4.tone)}>{safetyPrefix(row.v4.tone)}{row.v4.badge}</span>
+                    <span class="cell-detail">
+                      {row.v4.detail}{#if row.v4.ms !== undefined} · {row.v4.ms}ms{/if}
+                    </span>
                   </div>
                 {:else}
                   <span class="mono muted">--</span>
@@ -244,8 +316,10 @@
               <td>
                 {#if row.v6}
                   <div class="cell-stack">
-                    <span class={toneClass(row.v6.tone)}>{row.v6.badge}</span>
-                    <span class="cell-detail">{row.v6.detail}</span>
+                    <span class={toneClass(row.v6.tone)}>{safetyPrefix(row.v6.tone)}{row.v6.badge}</span>
+                    <span class="cell-detail">
+                      {row.v6.detail}{#if row.v6.ms !== undefined} · {row.v6.ms}ms{/if}
+                    </span>
                   </div>
                 {:else}
                   <span class="mono muted">--</span>
@@ -253,15 +327,25 @@
               </td>
             {:else}
               {@const single = row.v4 ?? row.v6}
+              {@const exTag = splitExitTag(single?.exitSlot)}
               <td>
                 {#if single}
-                  <span class={toneClass(single.tone)}>{single.badge}</span>
+                  <span class={toneClass(single.tone)}>{safetyPrefix(single.tone)}{single.badge}</span>
                 {:else}
                   <span class="mono muted">--</span>
                 {/if}
               </td>
               <td class="cell-detail-single">
-                {single?.detail ?? '--'}
+                {#if exTag}
+                  <span class={`mono ${exitClass(exTag.color)}`}>{exTag.slot}</span>
+                  {#if exTag.rest}
+                    <span class="mono exit-rest">{exTag.rest}</span>
+                  {/if}
+                {/if}
+                <span class="detail-sub">{single?.detail ?? '--'}</span>
+                {#if single?.ms !== undefined}
+                  <span class="mono rtt-chip">{single.ms} ms</span>
+                {/if}
               </td>
             {/if}
           </tr>
@@ -526,6 +610,129 @@
 
   .muted {
     color: var(--fg-faint);
+  }
+
+  .rtt-chip {
+    margin-left: 0.45rem;
+    font-size: 11px;
+    color: var(--fg-faint);
+  }
+
+  .exit-pill {
+    display: inline-block;
+    padding: 0.06rem 0.42rem;
+    font-size: 11px;
+    font-weight: 600;
+    border: 1px solid currentColor;
+    white-space: nowrap;
+  }
+
+  .exit-cn { color: var(--exit-cn); background: var(--exit-cn-bg); }
+  .exit-a  { color: var(--exit-a);  background: var(--exit-a-bg); }
+  .exit-b  { color: var(--exit-b);  background: var(--exit-b-bg); }
+  .exit-c  { color: var(--exit-c);  background: var(--exit-c-bg); }
+  .exit-d  { color: var(--exit-d);  background: var(--exit-d-bg); }
+  .exit-unk { color: var(--fg-muted); background: var(--bg-subtle); border-color: var(--rule); }
+
+  .exit-rest {
+    margin-left: 0.35rem;
+    margin-right: 0.5rem;
+    font-size: 11.5px;
+    font-weight: 600;
+    color: var(--fg);
+  }
+
+  .detail-sub {
+    font-size: 11.5px;
+    color: var(--fg-muted);
+  }
+
+  .radar-band {
+    border-bottom: 1px solid var(--rule-strong);
+    background: var(--bg);
+  }
+
+  .radar-head {
+    display: flex;
+    flex-wrap: wrap;
+    justify-content: space-between;
+    gap: 0.5rem;
+    padding: 0.42rem 0.9rem;
+    background: var(--bg-subtle);
+    border-bottom: 1px solid var(--rule);
+    font-size: 11px;
+    font-weight: 600;
+    color: var(--fg-muted);
+  }
+
+  .radar-table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 12.5px;
+  }
+
+  .radar-table th {
+    text-align: left;
+    padding: 0.36rem 0.9rem;
+    background: var(--bg-inset);
+    border-bottom: 1px solid var(--rule);
+    font-family: var(--font-mono);
+    font-size: 10.5px;
+    font-weight: 600;
+    color: var(--fg-faint);
+  }
+
+  .radar-table td {
+    padding: 0.5rem 0.9rem;
+    border-bottom: 1px solid var(--rule);
+    vertical-align: middle;
+  }
+
+  .radar-table tbody tr:last-child td {
+    border-bottom: none;
+  }
+
+  .radar-ip {
+    font-size: 12px;
+    font-weight: 600;
+  }
+
+  .radar-org {
+    font-size: 11px;
+    color: var(--fg-muted);
+  }
+
+  .radar-buckets {
+    font-size: 12px;
+    color: var(--fg);
+  }
+
+  .radar-ms {
+    text-align: right;
+    font-size: 11.5px;
+    color: var(--fg-muted);
+    white-space: nowrap;
+  }
+
+  .alarm-list {
+    border-top: 1px dashed var(--rule);
+    padding: 0.45rem 0.9rem;
+    display: flex;
+    flex-direction: column;
+    gap: 0.32rem;
+    background: var(--bg-inset);
+  }
+
+  .alarm-item {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 0.4rem;
+    font-size: 12px;
+  }
+
+  .alarm-detail {
+    color: var(--fg-muted);
   }
 
   .rx-band {

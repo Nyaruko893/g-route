@@ -7,6 +7,54 @@ const optStr = (max = 80) => z.string().max(max).optional();
 
 const EgressKindEnum = z.enum(['isp', 'hosting', 'warp', 'business', 'unknown']);
 
+const RouteBucketV1Schema = z.object({
+  ip: optStr(64),
+  cc: optStr(16),
+  asn: z.number().int().min(0).max(4_294_967_295).optional(),
+  org: optStr(96),
+  kind: EgressKindEnum.optional(),
+  colo: optStr(24),
+  warp: z.enum(['on', 'off', 'plus']).optional(),
+  ms: z.number().int().min(0).max(60_000).optional(),
+  note: optStr(64),
+});
+
+export type RouteBucketV1 = z.infer<typeof RouteBucketV1Schema>;
+
+const NetTransportV1Schema = z.object({
+  kind: z.enum(['direct', 'sysproxy', 'tun_fakeip', 'tun_realip', 'router']),
+  label: optStr(48),
+  nic: optStr(48),
+});
+
+const RouteTopologyV1Schema = z.object({
+  cn: RouteBucketV1Schema.optional(),
+  def: RouteBucketV1Schema.optional(),
+  ggc: RouteBucketV1Schema.optional(),
+  cf: RouteBucketV1Schema.optional(),
+  oai: RouteBucketV1Schema.optional(),
+  cld: RouteBucketV1Schema.optional(),
+});
+
+const StackRttV1Schema = z.object({
+  gem: z.number().int().min(0).max(60_000).optional(),
+  nlm: z.number().int().min(0).max(60_000).optional(),
+  yt: z.number().int().min(0).max(60_000).optional(),
+  cdn: z.number().int().min(0).max(60_000).optional(),
+  play: z.number().int().min(0).max(60_000).optional(),
+  srch: z.number().int().min(0).max(60_000).optional(),
+});
+
+const StackExitMapV1Schema = z.object({
+  gem: optStr(48),
+  nlm: optStr(48),
+  yt: optStr(48),
+  cdn: optStr(48),
+  play: optStr(48),
+  srch: optStr(48),
+  trm: optStr(48),
+});
+
 export const StackProbeV1Schema = z.object({
   ip: optStr(64),
   gip: optStr(64),
@@ -30,6 +78,8 @@ export const StackProbeV1Schema = z.object({
   trm: optStr(48),
   ent: optStr(64),
   dns: z.enum(['native', 'viadns', 'tun', 'skip']).optional(),
+  rtt: StackRttV1Schema.optional(),
+  ex: StackExitMapV1Schema.optional(),
 });
 
 export type StackProbeV1 = z.infer<typeof StackProbeV1Schema>;
@@ -43,6 +93,10 @@ export const CliReportV1Schema = z.object({
   px: z.boolean().optional(),
   cn: optStr(48),
   ap: optStr(8),
+  net: NetTransportV1Schema.optional(),
+  rt: RouteTopologyV1Schema.optional(),
+  al: z.array(z.string().max(48)).max(12).optional(),
+  att: z.record(z.string(), z.unknown()).optional(),
   v4: StackProbeV1Schema.optional(),
   v6: StackProbeV1Schema.optional(),
   lbl: optStr(64),

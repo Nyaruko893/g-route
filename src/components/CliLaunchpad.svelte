@@ -35,10 +35,10 @@
   const cliCommand = $derived.by(() => {
     if (osTab === 'unix') {
       if (cmdMode === 'audit') {
-        return `curl -sL ${origin}/sh -o g-route.sh && less g-route.sh && bash g-route.sh`;
+        return `curl -sL ${origin}/sh -o g-route.sh && less g-route.sh && bash g-route.sh --svg --no-link`;
       }
       if (cmdMode === 'controller') {
-        return `bash <(curl -sL ${origin}/sh) --controller http://127.0.0.1:9090`;
+        return `bash <(curl -sL ${origin}/sh) --inspect`;
       }
       if (cmdMode === 'dryrun') {
         return `bash <(curl -sL ${origin}/sh) --dry-run`;
@@ -47,10 +47,10 @@
     }
 
     if (cmdMode === 'audit') {
-      return `iwr ${origin}/ps -OutFile g-route.ps1; notepad g-route.ps1; .\\g-route.ps1`;
+      return `iwr ${origin}/ps -OutFile g-route.ps1; notepad g-route.ps1; .\\g-route.ps1 -Svg -NoLink`;
     }
     if (cmdMode === 'controller') {
-      return `$env:G_ROUTE_CONTROLLER='\\\\.\\pipe\\verge-mihomo'; irm ${origin}/ps | iex`;
+      return `$env:G_ROUTE_INSPECT='1'; irm ${origin}/ps | iex`;
     }
     if (cmdMode === 'dryrun') {
       return `iwr ${origin}/ps -OutFile g-route.ps1; .\\g-route.ps1 -DryRun`;
@@ -60,19 +60,19 @@
 
   const modeHint = $derived.by(() => {
     if (cmdMode === 'audit') {
-      return '推荐给高安全敏感场景：先落盘到本地文件逐行审阅，确认无误后再手动运行。';
+      return '纯离线无网页闭环：先落盘逐行审阅，跑完直接本地生成高清 SVG 体检卡（Windows 还可加 -Png 直出本地 PNG），不生成网页链接。';
     }
     if (cmdMode === 'controller') {
       return osTab === 'win'
-        ? '默认示例为 Clash Verge Rev 命名管道（Mihomo Party 可改 \\\\.\\pipe\\mihomo-party，传统 TCP 改 http://127.0.0.1:9090 并按需加 $env:G_ROUTE_SECRET）：仅本屏只读展示命中规则与策略链，节点名绝不写入 #r= 分享链。'
-        : '支持 HTTP（http://127.0.0.1:9090）或 Unix Socket（如 macOS/Linux Verge 的 /tmp/verge/verge-mihomo.sock）；仅本屏只读展示命中规则与策略链，节点名绝不写入 #r= 分享链。';
+        ? '白名单自动发现本机 Clash Verge Rev / Mihomo Party / sing-box 管道或端口（免背管道名，遇 401 现场提示密钥）；仅本屏只读审计 15 域规则一致性，绝不写入 #r= 或默认 SVG。'
+        : '白名单自动发现 Unix Socket（Verge / Mihomo Party）或 127.0.0.1:9090/9097；仅本屏只读审计 15 域规则一致性，绝不写入 #r= 或默认 SVG。';
     }
     if (cmdMode === 'dryrun') {
-      return '零发包安全审计：打印全部只读 HTTPS 目标域名、权限边界与当前配置后立即退出，不发出任何数据包。';
+      return '零发包安全审计：打印全部 6 桶分流雷达与 Google 6 路只读域名、权限边界后立即退出，不发出任何数据包。';
     }
     return osTab === 'unix'
-      ? '可选参数: -4 / -6 (单栈) · -f (完整 IP) · -x socks5://127.0.0.1:7890 · -j (纯 JSON) · --dry-run'
-      : '可选参数 (下载脚本后): -V4 / -V6 · -Full · -Proxy "http://127.0.0.1:7890" · -Controller · -DryRun';
+      ? '无参数直跑会展示 1 屏交互入口（回车即跑纯黑盒，跑完可按 S 存本地 SVG / 按 R 补查代理分组）；脚本自动化可加 --quick / --svg / -j。'
+      : '无参数直跑会展示 1 屏交互入口（回车即跑纯黑盒，跑完可按 S 存 SVG / P 存本地 PNG / R 补查代理分组）；直通参数可用 -Quick / -Inspect / -Svg / -Png。';
   });
 
   const sourceLineCount = $derived(sourceText ? sourceText.split('\n').length : 0);
@@ -197,9 +197,9 @@
 
     <div class="mode-row">
       {#each [
-        { id: 'fast', label: '极速一行' },
-        { id: 'audit', label: '先下载审阅再跑' },
-        { id: 'controller', label: '+ 查本机代理分组' },
+        { id: 'fast', label: '交互全局入口' },
+        { id: 'controller', label: '+ 自动透视代理分组' },
+        { id: 'audit', label: '纯离线直出 SVG (免网页)' },
         { id: 'dryrun', label: '零发包审计 (--dry-run)' },
       ] as m (m.id)}
         <button
@@ -288,10 +288,11 @@
           <div>
             <div class="mono contract-h">全部只读 HTTPS 请求目标</div>
             <ul class="contract-list mono">
-              <li>v4/v6.ident.me (备选 ipify) · 通用出口 ASN</li>
+              <li>v4/v6.ident.me (备选 ipify) · 通用海外出口 ASN</li>
+              <li>myip.ipip.net · 国内直连参照与绕行检测</li>
               <li>redirector.googlevideo.com · GGC 边缘与 Google 实见 IP</li>
-              <li>ipwho.is · 仅当 Google 实见 IP ≠ 通用 IP 且非 WARP 时查 ASN</li>
-              <li>myip.ipip.net · 国内直连对照</li>
+              <li>cloudflare.com / chatgpt.com / claude.ai (/cdn-cgi/trace) · 跨 AI 分流与 WARP</li>
+              <li>ipwho.is · 仅对去重后的新增非 WARP 出口查一次 ASN</li>
               <li>gspe1-ssl.ls.apple.com/pep/gcc · Apple 第三方对照</li>
               <li>gemini / notebooklm / youtube / play / google / policies</li>
             </ul>

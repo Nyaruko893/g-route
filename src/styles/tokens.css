@@ -26,6 +26,18 @@
     --accent: oklch(0.370 0.090 250);
     --accent-bg: oklch(0.940 0.018 250);
 
+    /* Exit identity subway-line palette (distinct from safety ok/leak) */
+    --exit-cn: oklch(0.450 0.095 186);
+    --exit-cn-bg: oklch(0.948 0.024 186);
+    --exit-a: oklch(0.435 0.145 256);
+    --exit-a-bg: oklch(0.945 0.025 256);
+    --exit-b: oklch(0.515 0.155 46);
+    --exit-b-bg: oklch(0.955 0.032 55);
+    --exit-c: oklch(0.440 0.165 292);
+    --exit-c-bg: oklch(0.948 0.028 292);
+    --exit-d: oklch(0.470 0.165 352);
+    --exit-d-bg: oklch(0.952 0.026 352);
+
     --space-1: 0.25rem;
     --space-2: 0.5rem;
     --space-3: 0.75rem;
@@ -55,6 +67,17 @@
       --leak-bg: oklch(0.235 0.042 25);
       --accent: oklch(0.740 0.090 245);
       --accent-bg: oklch(0.225 0.028 245);
+
+      --exit-cn: oklch(0.760 0.105 186);
+      --exit-cn-bg: oklch(0.225 0.032 186);
+      --exit-a: oklch(0.740 0.135 255);
+      --exit-a-bg: oklch(0.230 0.040 255);
+      --exit-b: oklch(0.785 0.145 55);
+      --exit-b-bg: oklch(0.245 0.042 52);
+      --exit-c: oklch(0.750 0.150 292);
+      --exit-c-bg: oklch(0.235 0.045 292);
+      --exit-d: oklch(0.755 0.155 352);
+      --exit-d-bg: oklch(0.240 0.042 352);
     }
   }
 
@@ -76,5 +99,16 @@
     --leak-bg: oklch(0.235 0.042 25);
     --accent: oklch(0.740 0.090 245);
     --accent-bg: oklch(0.225 0.028 245);
+
+    --exit-cn: oklch(0.760 0.105 186);
+    --exit-cn-bg: oklch(0.225 0.032 186);
+    --exit-a: oklch(0.740 0.135 255);
+    --exit-a-bg: oklch(0.230 0.040 255);
+    --exit-b: oklch(0.785 0.145 55);
+    --exit-b-bg: oklch(0.245 0.042 52);
+    --exit-c: oklch(0.750 0.150 292);
+    --exit-c-bg: oklch(0.235 0.045 292);
+    --exit-d: oklch(0.755 0.155 352);
+    --exit-d-bg: oklch(0.240 0.042 352);
   }
 }

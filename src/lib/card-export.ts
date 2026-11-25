@@ -1,5 +1,10 @@
 import type { CliReportV1 } from '../../shared/report-codec';
-import type { CellTone, ReportDiagnosis } from '../../shared/report-diagnosis';
+import {
+  splitExitTag,
+  type CellTone,
+  type ExitSlotColor,
+  type ReportDiagnosis,
+} from '../../shared/report-diagnosis';
 
 interface Palette {
   readonly bg: string;
@@ -16,6 +21,11 @@ interface Palette {
   readonly diffBg: string;
   readonly leak: string;
   readonly leakBg: string;
+  readonly exCn: readonly [string, string];
+  readonly exA: readonly [string, string];
+  readonly exB: readonly [string, string];
+  readonly exC: readonly [string, string];
+  readonly exD: readonly [string, string];
 }
 
 const LIGHT_PALETTE: Palette = {
@@ -27,12 +37,17 @@ const LIGHT_PALETTE: Palette = {
   fgFaint: '#858892',
   rule: '#ccc9c0',
   ruleStrong: '#242731',
-  ok: '#1f6e43',
-  okBg: '#e4f2ea',
+  ok: '#146c43',
+  okBg: '#dcf4e6',
   diff: '#9a5b0c',
-  diffBg: '#f6ecd8',
+  diffBg: '#fae8c8',
   leak: '#b42318',
-  leakBg: '#f9e4e2',
+  leakBg: '#fbdad7',
+  exCn: ['#0f766e', '#d6f5f0'],
+  exA: ['#1d4ed8', '#dbeafe'],
+  exB: ['#c2410c', '#ffedd5'],
+  exC: ['#6d28d9', '#ede9fe'],
+  exD: ['#be185d', '#fce7f3'],
 };
 
 const DARK_PALETTE: Palette = {
@@ -50,7 +65,21 @@ const DARK_PALETTE: Palette = {
   diffBg: '#302719',
   leak: '#eb6f63',
   leakBg: '#331d1c',
+  exCn: ['#2dd4bf', '#133432'],
+  exA: ['#60a5fa', '#172554'],
+  exB: ['#fb923c', '#431407'],
+  exC: ['#a78bfa', '#2e1065'],
+  exD: ['#f472b6', '#500724'],
 };
+
+function exitColors(color: ExitSlotColor, p: Palette): { fg: string; bg: string; border: string } {
+  if (color === 'cn') return { fg: p.exCn[0], bg: p.exCn[1], border: p.exCn[0] };
+  if (color === 'a') return { fg: p.exA[0], bg: p.exA[1], border: p.exA[0] };
+  if (color === 'b') return { fg: p.exB[0], bg: p.exB[1], border: p.exB[0] };
+  if (color === 'c') return { fg: p.exC[0], bg: p.exC[1], border: p.exC[0] };
+  if (color === 'd') return { fg: p.exD[0], bg: p.exD[1], border: p.exD[0] };
+  return { fg: p.fgMuted, bg: p.bgSubtle, border: p.rule };
+}
 
 const FONT_MONO = '"IBM Plex Mono", ui-monospace, "Cascadia Mono", Consolas, monospace';
 const FONT_SANS = '"PingFang SC", "Microsoft YaHei", "Noto Sans SC", system-ui, sans-serif';
@@ -120,7 +149,11 @@ export async function renderReportCardPngBlob(
   const PAD = 32;
   const INNER = W - PAD * 2;
   const ROW_H = 44;
-  const H = 310 + (diag.googleEgress ? 12 : 0) + diag.rows.length * ROW_H + 84;
+  const hasClusters = diag.routeClusters.length > 0;
+  const CLUSTER_H = hasClusters
+    ? 34 + diag.routeClusters.length * 32 + diag.routeAlarms.slice(0, 3).length * 22 + 12
+    : 0;
+  const H = 310 + (diag.googleEgress ? 12 : 0) + CLUSTER_H + diag.rows.length * ROW_H + 84;
   const DPR = 2;
 
   const canvas = document.createElement('canvas');
@@ -154,7 +187,7 @@ export async function renderReportCardPngBlob(
   ctx.fillText('G-ROUTE // GOOGLE 生态送中与分流体检卡', PAD + 20, y + 27);
 
   const ts = new Date(report.t * 1000).toISOString().replace('T', ' ').slice(0, 16) + ' UTC';
-  const metaRight = `${diag.modeLabel}  ·  ${ts}`;
+  const metaRight = `${diag.transportLabel}  ·  ${ts}`;
   ctx.fillStyle = p.fgMuted;
   ctx.font = `500 12px ${FONT_MONO}`;
   const metaW = ctx.measureText(metaRight).width;
@@ -288,6 +321,69 @@ export async function renderReportCardPngBlob(
   ctx.lineTo(PAD + INNER, y + 0.5);
   ctx.stroke();
 
+  // 3.5 Optional 6-Bucket Split-Route Topology Radar
+  if (hasClusters) {
+    ctx.fillStyle = p.bgSubtle;
+    ctx.fillRect(PAD + 1, y + 1, INNER - 2, 33);
+    ctx.fillStyle = p.fgMuted;
+    ctx.font = `600 11px ${FONT_MONO}`;
+    const ovCnt = diag.routeClusters.filter((c) => !c.isCnDirect).length;
+    ctx.fillText(`[01] 6 桶分流拓扑雷达 · 自动聚类 (${ovCnt} 路海外出口)`, PAD + 20, y + 17);
+    const rttHdrW = ctx.measureText('RTT').width;
+    ctx.fillStyle = p.fgFaint;
+    ctx.fillText('RTT', PAD + INNER - 20 - rttHdrW, y + 17);
+    y += 34;
+
+    for (const cl of diag.routeClusters) {
+      ctx.strokeStyle = p.rule;
+      ctx.beginPath();
+      ctx.moveTo(PAD, y + 0.5);
+      ctx.lineTo(PAD + INNER, y + 0.5);
+      ctx.stroke();
+
+      const cc = exitColors(cl.slotColor, p);
+      ctx.fillStyle = cc.bg;
+      ctx.fillRect(PAD + 20, y + 6, 72, 20);
+      ctx.strokeStyle = cc.border;
+      ctx.strokeRect(PAD + 20.5, y + 6.5, 71, 19);
+      ctx.fillStyle = cc.fg;
+      ctx.font = `600 10.5px ${FONT_MONO}`;
+      const sw = ctx.measureText(cl.slot).width;
+      ctx.fillText(cl.slot, PAD + 20 + (72 - sw) / 2, y + 16);
+
+      ctx.fillStyle = p.fg;
+      ctx.font = `600 11.5px ${FONT_MONO}`;
+      const asnOrg = `${cl.ip} · ${cl.asn ? `AS${cl.asn} ` : ''}${cl.org}`;
+      ctx.fillText(truncateText(ctx, asnOrg, 315), PAD + 104, y + 16);
+
+      ctx.fillStyle = p.fgMuted;
+      ctx.font = `400 11.5px ${FONT_SANS}`;
+      ctx.fillText(truncateText(ctx, cl.buckets.join(' / '), 325), PAD + 432, y + 16);
+
+      const msTxt = cl.avgMs !== null ? `${cl.avgMs} ms` : '--';
+      ctx.fillStyle = p.fgFaint;
+      ctx.font = `500 11px ${FONT_MONO}`;
+      const mw = ctx.measureText(msTxt).width;
+      ctx.fillText(msTxt, PAD + INNER - 20 - mw, y + 16);
+      y += 32;
+    }
+
+    for (const al of diag.routeAlarms.slice(0, 3)) {
+      const ac = toneColors(al.tone, p);
+      ctx.fillStyle = ac.fg;
+      ctx.font = `500 11px ${FONT_SANS}`;
+      const line = `${al.tone === 'leak' ? '[!]' : '[i]'} ${al.title}: ${al.detail}`;
+      ctx.fillText(truncateText(ctx, line, INNER - 40), PAD + 20, y + 12);
+      y += 22;
+    }
+    y += 12;
+    ctx.strokeStyle = p.ruleStrong;
+    ctx.beginPath();
+    ctx.moveTo(PAD, y + 0.5);
+    ctx.lineTo(PAD + INNER, y + 0.5);
+    ctx.stroke();
+  }
+
   // 4. Service Matrix Table Header
   const TH_H = 34;
   ctx.fillStyle = p.bgSubtle;
@@ -300,9 +396,9 @@ export async function renderReportCardPngBlob(
     ctx.fillText(`IPv4 (${report.v4?.ip ?? ''})`, PAD + 280, y + 17);
     ctx.fillText(`IPv6 (${report.v6?.ip ?? ''})`, PAD + 565, y + 17);
   } else {
-    const st = report.v4 ? `IPv4 (${report.v4.ip ?? ''})` : `IPv6 (${report.v6?.ip ?? ''})`;
+    const st = report.v4 ? 'IPv4' : 'IPv6';
     ctx.fillText(`实测结论 · ${st}`, PAD + 280, y + 17);
-    ctx.fillText('真值细节', PAD + 530, y + 17);
+    ctx.fillText('实测出口与真值细节', PAD + 505, y + 17);
   }
 
   y += TH_H;
@@ -331,8 +427,9 @@ export async function renderReportCardPngBlob(
         return;
       }
       const cc = toneColors(cell.tone, p);
+      const pfx = cell.tone === 'ok' ? '✓ ' : cell.tone === 'leak' ? '✕ ' : cell.tone === 'diff' ? '! ' : '';
       ctx.font = `600 11.5px ${FONT_MONO}`;
-      const bTxt = truncateText(ctx, cell.badge, maxW - 14);
+      const bTxt = truncateText(ctx, `${pfx}${cell.badge}`, maxW - 14);
       const bw = ctx.measureText(bTxt).width + 12;
       const by = showDetailBelow ? midY - 16 : midY - 10;
       ctx.fillStyle = cc.bg;
@@ -354,11 +451,28 @@ export async function renderReportCardPngBlob(
       drawCell(row.v6, PAD + 565, 270, true);
     } else {
       const single = row.v4 ?? row.v6;
-      drawCell(single, PAD + 280, 235, false);
+      drawCell(single, PAD + 280, 215, false);
       if (single) {
+        const tag = splitExitTag(single.exitSlot);
+        let cx = PAD + 505;
+        if (tag && tag.color !== 'unknown') {
+          const ec = exitColors(tag.color, p);
+          ctx.font = `600 10.5px ${FONT_MONO}`;
+          const tw = ctx.measureText(tag.slot).width + 12;
+          ctx.fillStyle = ec.bg;
+          ctx.fillRect(cx, midY - 10, tw, 20);
+          ctx.strokeStyle = ec.border;
+          ctx.strokeRect(cx + 0.5, midY - 9.5, tw - 1, 19);
+          ctx.fillStyle = ec.fg;
+          ctx.fillText(tag.slot, cx + 6, midY);
+          cx += tw + 8;
+        }
+        const tail = [tag ? tag.rest : single.exitSlot, single.ms !== undefined ? `${single.ms}ms` : '']
+          .filter(Boolean)
+          .join(' · ');
         ctx.fillStyle = p.fgMuted;
-        ctx.font = `400 12px ${FONT_SANS}`;
-        ctx.fillText(truncateText(ctx, single.detail, 310), PAD + 530, midY);
+        ctx.font = `500 11.5px ${FONT_MONO}`;
+        ctx.fillText(truncateText(ctx, tail || single.detail, PAD + INNER - 20 - cx), cx, midY);
       }
     }
 

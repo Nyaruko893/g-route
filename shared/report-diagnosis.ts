@@ -1,11 +1,60 @@
-import type { CliReportV1, StackProbeV1 } from './report-codec';
+import type { CliReportV1, RouteBucketV1, StackProbeV1 } from './report-codec';
 
 export type VerdictTier = 'clean' | 'split' | 'partial' | 'drift';
 export type CellTone = 'ok' | 'diff' | 'leak' | 'muted';
+export type ExitSlotColor = 'cn' | 'a' | 'b' | 'c' | 'd' | 'unknown';
+
+function resolveExitSlotColor(slotOrText: string | undefined): ExitSlotColor {
+  if (!slotOrText) return 'unknown';
+  if (slotOrText.startsWith('直连') || slotOrText.startsWith('国内')) return 'cn';
+  if (slotOrText.startsWith('出口 A')) return 'a';
+  if (slotOrText.startsWith('出口 B')) return 'b';
+  if (slotOrText.startsWith('出口 C')) return 'c';
+  if (/^出口 [D-Z]/.test(slotOrText)) return 'd';
+  return 'unknown';
+}
+
+export function splitExitTag(raw: string | undefined): {
+  readonly slot: string;
+  readonly rest: string;
+  readonly color: ExitSlotColor;
+} | null {
+  if (!raw) return null;
+  const m = raw.match(/^(直连 CN|出口 [A-Z])\s*(?:[·(]\s*)?(.*)$/);
+  if (m && m[1]) {
+    const rest = (m[2] ?? '').replace(/\)\s*$/, '').trim();
+    return { slot: m[1], rest, color: resolveExitSlotColor(m[1]) };
+  }
+  return { slot: raw, rest: '', color: 'unknown' };
+}
 
 interface ServiceCell {
   readonly tone: CellTone;
   readonly badge: string;
+  readonly detail: string;
+  readonly ms?: number | undefined;
+  readonly exitSlot?: string | undefined;
+}
+
+export interface RouteExitCluster {
+  readonly slot: string;
+  readonly slotColor: ExitSlotColor;
+  readonly tone: CellTone;
+  readonly ip: string;
+  readonly asn: number | null;
+  readonly org: string;
+  readonly kindLabel: string;
+  readonly cc: string;
+  readonly buckets: readonly string[];
+  readonly avgMs: number | null;
+  readonly warp: boolean;
+  readonly isCnDirect: boolean;
+}
+
+export interface RouteAlarm {
+  readonly id: string;
+  readonly tone: 'leak' | 'diff' | 'ok';
+  readonly title: string;
   readonly detail: string;
 }
 
@@ -46,6 +95,7 @@ export interface ReportDiagnosis {
   readonly summary: string;
   readonly badges: readonly ReportBadge[];
   readonly modeLabel: string;
+  readonly transportLabel: string;
   readonly defaultEgress: EgressAttribution;
   readonly googleEgress: EgressAttribution | null;
   readonly publicGeoLabel: string;
@@ -56,6 +106,8 @@ export interface ReportDiagnosis {
   readonly hasDualStackAsymmetry: boolean;
   readonly hasEeaNotice: boolean;
   readonly isHostingVerifiedOk: boolean;
+  readonly routeClusters: readonly RouteExitCluster[];
+  readonly routeAlarms: readonly RouteAlarm[];
   readonly rows: readonly ServiceMatrixRow[];
   readonly prescriptions: readonly PrescriptionItem[];
   readonly suggestedPatch: {
@@ -384,36 +436,59 @@ function evaluateStackHealth(stack: StackProbeV1 | undefined, stackLabel: string
   };
 }
 
+function resolveCellExit(
+  s: StackProbeV1,
+  key: 'gem' | 'nlm' | 'yt' | 'cdn' | 'play' | 'srch' | 'trm',
+): string | undefined {
+  const explicit = s.ex?.[key];
+  if (explicit) return explicit;
+  if ((key === 'yt' || key === 'cdn') && s.gip) {
+    return s.ip && s.gip !== s.ip ? `分流出口 (${s.gip})` : `出口 A (${s.gip})`;
+  }
+  if (s.ip && (!s.gip || s.gip === s.ip)) {
+    return `出口 A (${s.ip})`;
+  }
+  return undefined;
+}
+
 function buildGeminiCell(s: StackProbeV1): ServiceCell {
+  const ms = s.rtt?.gem;
+  const exitSlot = resolveCellExit(s, 'gem');
   if (!s.gem || s.gem === '?') {
-    return { tone: 'muted', badge: 'N/A', detail: '未取到 Boq 国码' };
+    return { tone: 'muted', badge: 'N/A', detail: '未取到 Boq 国码', ms, exitSlot };
   }
   const iso = normalizeCountryCode(s.gem);
   if (iso && RESTRICTED_GOOGLE_AI.has(iso)) {
-    return { tone: 'leak', badge: `受限 [${s.gem}]`, detail: 'Boq 判区不支持 Gemini' };
+    return { tone: 'leak', badge: `受限 [${s.gem}]`, detail: 'Boq 判区不支持 Gemini', ms, exitSlot };
   }
-  return { tone: 'ok', badge: `可用 [${s.gem}]`, detail: 'Boq 原生国码支持' };
+  return { tone: 'ok', badge: `可用 [${s.gem}]`, detail: 'Boq 原生国码支持', ms, exitSlot };
 }
 
 function buildNotebookCell(s: StackProbeV1): ServiceCell {
+  const ms = s.rtt?.nlm;
+  const exitSlot = resolveCellExit(s, 'nlm');
   if (s.nlm === 'ok') {
-    return { tone: 'ok', badge: '支持 (301)', detail: 'notebook.google.com' };
+    return { tone: 'ok', badge: '支持 (301)', detail: 'notebook.google.com', ms, exitSlot };
   }
   if (s.nlm === 'unavail') {
-    return { tone: 'leak', badge: '封锁 (302)', detail: '?location=unsupported' };
+    return { tone: 'leak', badge: '封锁 (302)', detail: '?location=unsupported', ms, exitSlot };
   }
-  return { tone: 'muted', badge: 'N/A', detail: '未响应' };
+  return { tone: 'muted', badge: 'N/A', detail: '未响应', ms, exitSlot };
 }
 
 function buildYoutubeCell(s: StackProbeV1): ServiceCell {
+  const ms = s.rtt?.yt;
+  const exitSlot = resolveCellExit(s, 'yt');
   if (s.yt === 'cn') {
-    return { tone: 'leak', badge: '送中 [CN]', detail: '命中 www.google.cn' };
+    return { tone: 'leak', badge: '送中 [CN]', detail: '命中 www.google.cn', ms, exitSlot };
   }
   if (s.yt === 'noprem') {
     return {
       tone: 'leak',
       badge: '不支持 Premium',
       detail: s.ytg ? `GL=${s.ytg} 但正文报地区不可用` : '半隐身送中特征',
+      ms,
+      exitSlot,
     };
   }
   if (s.yt === 'ok') {
@@ -421,14 +496,18 @@ function buildYoutubeCell(s: StackProbeV1): ServiceCell {
       tone: 'ok',
       badge: `可用 [${s.ytg ?? 'OK'}]`,
       detail: 'Premium + 无送中标记',
+      ms,
+      exitSlot,
     };
   }
-  return { tone: 'muted', badge: 'N/A', detail: '未响应' };
+  return { tone: 'muted', badge: 'N/A', detail: '未响应', ms, exitSlot };
 }
 
 function buildGgcCell(s: StackProbeV1): ServiceCell {
+  const ms = s.rtt?.cdn;
+  const exitSlot = resolveCellExit(s, 'cdn');
   if (!s.cdn) {
-    return { tone: 'muted', badge: 'N/A', detail: '未返回 report_mapping' };
+    return { tone: 'muted', badge: 'N/A', detail: '未返回 report_mapping', ms, exitSlot };
   }
   const isIspCache = s.cdn.includes('-') && !s.cdnu;
   const ipDiff = Boolean(s.ip && s.gip && s.ip !== s.gip);
@@ -438,27 +517,35 @@ function buildGgcCell(s: StackProbeV1): ServiceCell {
     tone: ipDiff ? 'diff' : 'ok',
     badge: s.cdn,
     detail: [cacheHint, ipHint].filter(Boolean).join(' · '),
+    ms,
+    exitSlot,
   };
 }
 
 function buildPlayCell(s: StackProbeV1): ServiceCell {
+  const ms = s.rtt?.play;
+  const exitSlot = resolveCellExit(s, 'play');
   if (!s.play || s.play === '?') {
-    return { tone: 'muted', badge: 'N/A', detail: '未取到商店地区' };
+    return { tone: 'muted', badge: 'N/A', detail: '未取到商店地区', ms, exitSlot };
   }
   const iso = normalizeCountryCode(s.play);
   if (iso && RESTRICTED_GOOGLE_AI.has(iso)) {
-    return { tone: 'leak', badge: `送中 [${iso}]`, detail: s.play };
+    return { tone: 'leak', badge: `送中 [${iso}]`, detail: s.play, ms, exitSlot };
   }
-  return { tone: 'ok', badge: iso ? `正常 [${iso}]` : s.play, detail: s.play };
+  return { tone: 'ok', badge: iso ? `正常 [${iso}]` : s.play, detail: s.play, ms, exitSlot };
 }
 
 function buildSearchCell(s: StackProbeV1): ServiceCell {
+  const ms = s.rtt?.srch;
+  const exitSlot = resolveCellExit(s, 'srch');
   const hkRedirect = s.sdom === 'hkredirect' || (s.sdom && /\.hk$|\.cn$/i.test(s.sdom));
   if (s.scap === 'captcha') {
     return {
       tone: 'diff',
       badge: '弹验证码 (/sorry)',
       detail: s.sdom ? `搜索域 ${s.sdom}` : '触发异常流量验证',
+      ms,
+      exitSlot,
     };
   }
   if (hkRedirect || s.scap === 'hk') {
@@ -466,6 +553,8 @@ function buildSearchCell(s: StackProbeV1): ServiceCell {
       tone: 'leak',
       badge: '送中 (.com.hk)',
       detail: s.sdom === 'hkredirect' ? '302 pref=hkredirect · 无验证码' : '静默重定向香港搜索',
+      ms,
+      exitSlot,
     };
   }
   if (s.sdom || s.scap === 'ok') {
@@ -473,31 +562,231 @@ function buildSearchCell(s: StackProbeV1): ServiceCell {
       tone: 'ok',
       badge: s.sdom ?? '无验证码',
       detail: '直出 200 · 无 /sorry 拦截',
+      ms,
+      exitSlot,
     };
   }
-  return { tone: 'muted', badge: 'N/A', detail: '未响应' };
+  return { tone: 'muted', badge: 'N/A', detail: '未响应', ms, exitSlot };
 }
 
 function buildTermsCell(s: StackProbeV1): ServiceCell {
+  const exitSlot = resolveCellExit(s, 'trm');
   if (!s.trm || s.trm === '?') {
-    return { tone: 'muted', badge: 'N/A', detail: s.ent ?? '未提取到条款国' };
+    return { tone: 'muted', badge: 'N/A', detail: s.ent ?? '未提取到条款国', exitSlot };
   }
   const iso = normalizeCountryCode(s.trm);
   if (iso && RESTRICTED_GOOGLE_AI.has(iso)) {
-    return { tone: 'leak', badge: `送中 [${iso}]`, detail: `${s.trm} · ${s.ent ?? ''}`.trim() };
+    return { tone: 'leak', badge: `送中 [${iso}]`, detail: `${s.trm} · ${s.ent ?? ''}`.trim(), exitSlot };
   }
   if (s.ent === 'Google Ireland Limited' || (iso && EEA_UK_CH.has(iso))) {
     return {
       tone: 'diff',
       badge: `EEA [${iso ?? s.trm}]`,
       detail: `${s.ent ?? s.trm}（免费 API 需绑卡）`,
+      exitSlot,
     };
   }
   return {
     tone: 'ok',
     badge: iso ? `正常 [${iso}]` : s.trm,
     detail: `${s.trm}${s.ent ? ` · ${s.ent}` : ''}`,
+    exitSlot,
   };
+}
+
+function clusterRouteExits(
+  report: CliReportV1,
+  defaultEgress: EgressAttribution,
+  googleEgress: EgressAttribution | null,
+): readonly RouteExitCluster[] {
+  const rt = report.rt;
+  if (!rt) return [];
+
+  const clusters: RouteExitCluster[] = [];
+
+  if (rt.cn && (rt.cn.ip || rt.cn.cc || rt.cn.note)) {
+    const cnCc = normalizeCountryCode(rt.cn.cc);
+    const isRealCn = cnCc === 'CN' || Boolean(rt.cn.note?.includes('中国'));
+    if (isRealCn || report.m === 'proxy') {
+      clusters.push({
+        slot: isRealCn ? '直连 CN' : '国内异常',
+        slotColor: 'cn',
+        tone: isRealCn ? 'ok' : 'leak',
+        ip: rt.cn.ip ?? '--',
+        asn: rt.cn.asn ?? null,
+        org: rt.cn.note || rt.cn.org || (isRealCn ? '国内直连出口' : '疑似绕行海外'),
+        kindLabel: isRealCn ? '直连分流' : '绕行告警',
+        cc: rt.cn.cc ?? (isRealCn ? 'CN' : '?'),
+        buckets: [isRealCn ? '国内直连 (未绕行代理)' : '国内桶落入非 CN 出口'],
+        avgMs: rt.cn.ms ?? null,
+        warp: false,
+        isCnDirect: isRealCn,
+      });
+    }
+  }
+
+  const orderedDefs: readonly { key: 'def' | 'ggc' | 'cf' | 'oai' | 'cld'; label: string }[] = [
+    { key: 'def', label: '通用海外' },
+    { key: 'ggc', label: 'Google/YT GGC' },
+    { key: 'cf', label: 'Cloudflare' },
+    { key: 'oai', label: 'OpenAI (ChatGPT)' },
+    { key: 'cld', label: 'Anthropic (Claude)' },
+  ];
+
+  interface MutableBucketGroup {
+    ip: string;
+    asn: number | null;
+    org: string;
+    kind: 'hosting' | 'isp' | 'warp' | 'business' | 'unknown';
+    cc: string;
+    buckets: string[];
+    msList: number[];
+    warp: boolean;
+  }
+
+  const byKey = new Map<string, MutableBucketGroup>();
+  const order: string[] = [];
+
+  for (const item of orderedDefs) {
+    const b: RouteBucketV1 | undefined = rt[item.key];
+    if (!b || !b.ip) continue;
+    const key = b.ip.toLowerCase();
+    const warpOn = b.warp === 'on' || b.warp === 'plus';
+    const suffixParts: string[] = [];
+    if (b.colo) suffixParts.push(b.colo);
+    if (warpOn) suffixParts.push('WARP');
+    const bucketTag = suffixParts.length > 0 ? `${item.label} (${suffixParts.join('/')})` : item.label;
+
+    const existing = byKey.get(key);
+    if (existing) {
+      existing.buckets.push(bucketTag);
+      if (b.ms !== undefined) existing.msList.push(b.ms);
+      if (warpOn) existing.warp = true;
+      if (!existing.asn && b.asn) existing.asn = b.asn;
+      if ((!existing.org || existing.org === 'Unknown') && b.org) existing.org = b.org;
+      if (!existing.cc && b.cc) existing.cc = b.cc;
+      if (existing.kind === 'unknown' && b.kind) existing.kind = b.kind;
+    } else {
+      const sameAsDef = key === defaultEgress.ip.toLowerCase();
+      const sameAsGoogle = googleEgress !== null && key === googleEgress.ip.toLowerCase();
+      const org = b.org ?? (sameAsDef ? defaultEgress.org : sameAsGoogle ? googleEgress.org : warpOn ? 'Cloudflare WARP' : '独立出口');
+      const asn = b.asn ?? (sameAsDef ? defaultEgress.asn : sameAsGoogle ? googleEgress.asn : warpOn ? 13335 : null);
+      const kind = classifyOrgKind(
+        org,
+        asn ?? undefined,
+        b.ip,
+        b.kind ?? (sameAsDef ? defaultEgress.kind : sameAsGoogle ? googleEgress.kind : warpOn ? 'warp' : undefined),
+      );
+      byKey.set(key, {
+        ip: b.ip,
+        asn,
+        org,
+        kind,
+        cc: b.cc ?? (sameAsDef ? (report.v4?.cc ?? report.v6?.cc ?? '') : ''),
+        buckets: [bucketTag],
+        msList: b.ms !== undefined ? [b.ms] : [],
+        warp: warpOn || kind === 'warp',
+      });
+      order.push(key);
+    }
+  }
+
+  const slotLetters = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ';
+  order.forEach((key, idx) => {
+    const g = byKey.get(key);
+    if (!g) return;
+    const avgMs =
+      g.msList.length > 0 ? Math.round(g.msList.reduce((acc, v) => acc + v, 0) / g.msList.length) : null;
+    const letter = slotLetters[idx] ?? String(idx + 1);
+    const slotName = `出口 ${letter}`;
+    clusters.push({
+      slot: slotName,
+      slotColor: resolveExitSlotColor(slotName),
+      tone: g.warp ? 'diff' : idx === 0 ? 'muted' : 'ok',
+      ip: g.ip,
+      asn: g.asn,
+      org: g.org,
+      kindLabel: kindToChineseLabel(g.kind),
+      cc: g.cc || '?',
+      buckets: g.buckets,
+      avgMs,
+      warp: g.warp,
+      isCnDirect: false,
+    });
+  });
+
+  return clusters;
+}
+
+function extractRouteAlarms(
+  report: CliReportV1,
+  clusters: readonly RouteExitCluster[],
+  hasDualStackAsymmetry: boolean,
+  hasAiVsGoogleSplit: boolean,
+): readonly RouteAlarm[] {
+  const alarms: RouteAlarm[] = [];
+  const rawSet = new Set(report.al ?? []);
+  const rt = report.rt;
+
+  const cnBad = rawSet.has('cn_leak') || clusters.some((c) => c.slot === '国内异常');
+  if (cnBad) {
+    alarms.push({
+      id: 'cn_leak',
+      tone: 'leak',
+      title: '国内流量疑似绕行海外代理',
+      detail: `国内参照桶返回 ${rt?.cn?.ip ?? '?'} (${rt?.cn?.cc ?? '非CN'})，请检查 GeoIP CN / DIRECT 直连规则是否生效。`,
+    });
+  }
+
+  if (hasDualStackAsymmetry || rawSet.has('stack_split')) {
+    alarms.push({
+      id: 'stack_split',
+      tone: 'leak',
+      title: 'IPv4 / IPv6 双栈落区或可用性冲突',
+      detail: 'Google 激进优先 IPv6，建议关闭冲突协议栈或在规则中锁定单一栈。',
+    });
+  }
+
+  if (hasAiVsGoogleSplit || rawSet.has('google_region_split')) {
+    alarms.push({
+      id: 'google_region_split',
+      tone: 'diff',
+      title: 'Google 同生态跨区撕裂',
+      detail: 'Gemini 与泛 Google 服务（Play / Search / Terms）落入不同国家，容易触发风控。',
+    });
+  }
+
+  const overseasSlots = clusters.filter((c) => !c.isCnDirect);
+  const aiIps = new Set(
+    [rt?.ggc?.ip, rt?.oai?.ip, rt?.cld?.ip].filter((v): v is string => Boolean(v)),
+  );
+  if (rawSet.has('ai_split') || aiIps.size >= 2) {
+    const parts: string[] = [];
+    if (rt?.ggc?.ip) parts.push(`Google/YT=${rt.ggc.ip}`);
+    if (rt?.oai?.ip) parts.push(`ChatGPT=${rt.oai.ip}${rt.oai.cc ? `(${rt.oai.cc})` : ''}`);
+    if (rt?.cld?.ip) parts.push(`Claude=${rt.cld.ip}${rt.cld.cc ? `(${rt.cld.cc})` : ''}`);
+    alarms.push({
+      id: 'ai_split',
+      tone: 'diff',
+      title: `跨 AI 生态走了 ${aiIps.size || overseasSlots.length} 条不同出口`,
+      detail: parts.length > 0 ? parts.join(' · ') : 'Gemini / ChatGPT / Claude 命中不同策略出口，请确认是否符合预期。',
+    });
+  }
+
+  if (rawSet.has('warp_egress') || clusters.some((c) => c.warp)) {
+    const warpBuckets = clusters
+      .filter((c) => c.warp)
+      .flatMap((c) => c.buckets)
+      .slice(0, 4);
+    alarms.push({
+      id: 'warp_egress',
+      tone: 'ok',
+      title: '检出 Cloudflare WARP 出站分流',
+      detail: warpBuckets.length > 0 ? `经 WARP 出站: ${warpBuckets.join('、')}` : '部分海外/Google 流量通过 WARP 转发。',
+    });
+  }
+
+  return alarms;
 }
 
 export function diagnoseCliReport(report: CliReportV1): ReportDiagnosis {
@@ -585,6 +874,20 @@ export function diagnoseCliReport(report: CliReportV1): ReportDiagnosis {
         ? '直连主机 · 出站分流'
         : '直连出站';
 
+  const transportLabel = report.net?.label
+    ? report.net.nic && !report.net.label.includes(report.net.nic)
+      ? `${report.net.label} (${report.net.nic})`
+      : report.net.label
+    : modeLabel;
+
+  const routeClusters = clusterRouteExits(report, defaultEgress, googleEgress);
+  const routeAlarms = extractRouteAlarms(
+    report,
+    routeClusters,
+    hasDualStackAsymmetry,
+    h4.hasAiVsGoogleSplit || h6.hasAiVsGoogleSplit,
+  );
+
   // Determine 4-state verdict tier
   let tier: VerdictTier = 'clean';
   let tierCode = 'CLEAN';
@@ -629,7 +932,7 @@ export function diagnoseCliReport(report: CliReportV1): ReportDiagnosis {
 
   // Status badges (crisp, scannable)
   const badges: ReportBadge[] = [];
-  badges.push({ tone: 'muted', text: modeLabel });
+  badges.push({ tone: 'muted', text: transportLabel });
   if (isHostingVerifiedOk) {
     badges.push({ tone: 'ok', text: '机房 · 实测无碍' });
   } else if (effectiveGoogleKind === 'warp') {
@@ -792,6 +1095,7 @@ export function diagnoseCliReport(report: CliReportV1): ReportDiagnosis {
     summary,
     badges,
     modeLabel,
+    transportLabel,
     defaultEgress,
     googleEgress,
     publicGeoLabel,
@@ -802,6 +1106,8 @@ export function diagnoseCliReport(report: CliReportV1): ReportDiagnosis {
     hasDualStackAsymmetry,
     hasEeaNotice,
     isHostingVerifiedOk,
+    routeClusters,
+    routeAlarms,
     rows,
     prescriptions,
     suggestedPatch: {
@@ -889,7 +1195,8 @@ export function buildReportMarkdown(report: CliReportV1, diag: ReportDiagnosis):
   const lines = [
     `## G-ROUTE // Google 生态体检报告 (${diag.tierCode})`,
     `- **结论**: ${diag.headline}`,
-    `- **通用出口**: \`${diag.defaultEgress.ip}\` | AS${diag.defaultEgress.asn ?? '?'} ${diag.defaultEgress.org} (${diag.defaultEgress.kindLabel}) · ${diag.modeLabel}`,
+    `- **运行形态**: ${diag.transportLabel}`,
+    `- **通用出口**: \`${diag.defaultEgress.ip}\` | AS${diag.defaultEgress.asn ?? '?'} ${diag.defaultEgress.org} (${diag.defaultEgress.kindLabel})`,
     ...(diag.googleEgress
       ? [
           `- **Google 实见出口**: \`${diag.googleEgress.ip}\` | AS${diag.googleEgress.asn ?? '?'} ${diag.googleEgress.org} (${diag.googleEgress.kindLabel})`,
@@ -897,15 +1204,30 @@ export function buildReportMarkdown(report: CliReportV1, diag: ReportDiagnosis):
       : []),
     `- **三方对照**: 公开库 \`${diag.publicGeoLabel}\` / Apple \`${diag.appleGeoLabel}\` / Google 实测 \`${diag.googleGeoLabel}\``,
     `- **时间**: ${ts}`,
-    '',
-    '| 服务维度 | IPv4 | IPv6 |',
-    '| :--- | :--- | :--- |',
   ];
 
+  if (diag.routeClusters.length > 0) {
+    lines.push('', '| 出口槽 | 归属与 ASN | 命中业务桶 | 平均 RTT |', '| :--- | :--- | :--- | :--- |');
+    for (const c of diag.routeClusters) {
+      const asnStr = c.asn ? `AS${c.asn} ` : '';
+      const msStr = c.avgMs !== null ? `${c.avgMs} ms` : '--';
+      lines.push(`| ${c.slot} | \`${c.ip}\` · ${asnStr}${c.org} (${c.kindLabel}) | ${c.buckets.join(' / ')} | ${msStr} |`);
+    }
+  }
+
+  lines.push('', '| 服务维度 | IPv4 | IPv6 |', '| :--- | :--- | :--- |');
+
   for (const row of diag.rows) {
-    const v4Txt = row.v4 ? `${row.v4.badge} (${row.v4.detail})` : '--';
-    const v6Txt = row.v6 ? `${row.v6.badge} (${row.v6.detail})` : '--';
+    const v4Txt = row.v4 ? `${row.v4.badge} (${row.v4.detail}${row.v4.ms ? ` · ${row.v4.ms}ms` : ''})` : '--';
+    const v6Txt = row.v6 ? `${row.v6.badge} (${row.v6.detail}${row.v6.ms ? ` · ${row.v6.ms}ms` : ''})` : '--';
     lines.push(`| ${row.label} | ${v4Txt} | ${v6Txt} |`);
+  }
+
+  if (diag.routeAlarms.length > 0) {
+    lines.push('', '### 分流提醒');
+    for (const al of diag.routeAlarms) {
+      lines.push(`- **${al.title}**: ${al.detail}`);
+    }
   }
 
   return lines.join('\n');

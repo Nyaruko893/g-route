@@ -15,17 +15,12 @@
 ## 快速开始
 
 ### 1. 终端运行（默认进入交互菜单）
-- **Linux / macOS**：
-  ```bash
-  bash <(curl -sL https://raw.githubusercontent.com/Nyaruko893/g-route/main/scripts/check.sh)
-  ```
-- **Windows PowerShell (5.1 & 7)**：
-  ```powershell
-  irm https://raw.githubusercontent.com/Nyaruko893/g-route/main/scripts/check.ps1 | iex
-  ```
-- **自部署 Cloudflare Workers 短链**：
-  - Linux / macOS：`bash <(curl -sL https://<your-worker>.workers.dev/sh)`
-  - Windows PowerShell：`irm https://<your-worker>.workers.dev/ps | iex`
+- **Cloudflare Workers 短链（推荐）**：
+  - Linux / macOS：`bash <(curl -sL https://g-route.429-oops.workers.dev/sh)`
+  - Windows PowerShell：`irm https://g-route.429-oops.workers.dev/ps | iex`
+- **GitHub Raw 直拉**：
+  - Linux / macOS：`bash <(curl -sL https://raw.githubusercontent.com/Nyaruko893/g-route/main/scripts/check.sh)`
+  - Windows PowerShell：`irm https://raw.githubusercontent.com/Nyaruko893/g-route/main/scripts/check.ps1 | iex`
 
 ### 2. 常用参数
 - `--quick` / `-Quick`：跳过交互菜单直接执行标准诊断

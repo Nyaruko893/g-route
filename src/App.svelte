@@ -30,7 +30,7 @@
     type StoredReportEntry,
   } from './lib/session-store';
 
-  const origin = typeof window !== 'undefined' ? window.location.origin : 'https://g-route.workers.dev';
+  const origin = typeof window !== 'undefined' ? window.location.origin : 'https://g-route.429-oops.workers.dev';
 
   let theme = $state<'auto' | 'light' | 'dark'>('auto');
   let quickRunning = $state(false);

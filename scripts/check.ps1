@@ -43,6 +43,7 @@ try { [Console]::OutputEncoding = [System.Text.Encoding]::UTF8 } catch {}
 try { [Console]::InputEncoding = [System.Text.Encoding]::UTF8 } catch {}
 
 $G_ROUTE_ORIGIN = if ($env:G_ROUTE_ORIGIN) { $env:G_ROUTE_ORIGIN } else { "__G_ROUTE_ORIGIN__" }
+$DEFAULT_WEB_ORIGIN = "https://g-route.429-oops.workers.dev"
 if (-not $Controller -and $env:G_ROUTE_CONTROLLER) { $Controller = $env:G_ROUTE_CONTROLLER }
 if (-not $Secret -and $env:G_ROUTE_SECRET) { $Secret = $env:G_ROUTE_SECRET }
 if (-not $Inspect -and $env:G_ROUTE_INSPECT -eq "1") { $Inspect = $true }
@@ -2461,13 +2462,9 @@ try {
 
   if (-not $NoLink) {
     $payload = ConvertTo-GzipBase64Url -Text $jsonText
-    if ($G_ROUTE_ORIGIN -match "^https?://") {
-      Write-ColorText "Web 报告链接:" "Cyan"
-      Write-Host "$G_ROUTE_ORIGIN/#r=$payload"
-    } else {
-      Write-ColorText "离线报告码 (粘贴到 G-ROUTE 网页加载报告或对比):" "Cyan"
-      Write-Host "G1:$payload"
-    }
+    $linkOrigin = if ($G_ROUTE_ORIGIN -match "^https?://") { $G_ROUTE_ORIGIN.TrimEnd("/") } else { $DEFAULT_WEB_ORIGIN }
+    Write-ColorText "Web 报告链接:" "Cyan"
+    Write-Host "$linkOrigin/#r=$payload"
   }
   Write-ColorText "注: 本地探测并离线编码，IP 已默认脱敏 (-Full 显示完整)，无服务端存储。" "DarkGray"
 

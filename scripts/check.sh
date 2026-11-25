@@ -5,6 +5,7 @@
 set -u
 
 G_ROUTE_ORIGIN="${G_ROUTE_ORIGIN:-__G_ROUTE_ORIGIN__}"
+DEFAULT_WEB_ORIGIN="https://g-route.429-oops.workers.dev"
 UA="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/134.0.0.0 Safari/537.36"
 SOCS_COOKIE="YSC=FSCWhKo2Zgw; SOCS=CAISHAgBEhJnd3NfMjAyNDA1MjctMF9SQzIaAmVuIAEaBgiA_LyaBg"
 
@@ -1676,12 +1677,11 @@ fi
 
 if [ "$OPT_NO_LINK" -eq 0 ]; then
   PAYLOAD=$(encode_payload)
+  LINK_ORIGIN="$DEFAULT_WEB_ORIGIN"
   case "$G_ROUTE_ORIGIN" in
-    http://*|https://*)
-      printf '%bWeb 报告链接:%b\n%s/#r=%s\n' "$C_CYN" "$C_RST" "$G_ROUTE_ORIGIN" "$PAYLOAD" ;;
-    *)
-      printf '%b离线报告码 (粘贴到 G-ROUTE 网页加载报告或对比):%b\nG1:%s\n' "$C_CYN" "$C_RST" "$PAYLOAD" ;;
+    http://*|https://*) LINK_ORIGIN="${G_ROUTE_ORIGIN%/}" ;;
   esac
+  printf '%bWeb 报告链接:%b\n%s/#r=%s\n' "$C_CYN" "$C_RST" "$LINK_ORIGIN" "$PAYLOAD"
 fi
 printf '%b注: 本地探测并离线编码，IP 已默认脱敏 (-f 显示完整)，无服务端存储。%b\n' "$C_DIM" "$C_RST"
 

@@ -84,10 +84,12 @@
         {#each diffRows as row (row.id)}
           <tr class={row.changed ? 'row-changed' : ''}>
             <td class="dim-cell">
-              <span>{row.label}</span>
-              {#if row.changed}
-                <span class="tag tag-diff diff-pill">DIFF</span>
-              {/if}
+              <div class="dim-inner">
+                <span>{row.label}</span>
+                {#if row.changed}
+                  <span class="tag tag-diff diff-pill">DIFF</span>
+                {/if}
+              </div>
             </td>
             <td class={`mono val-cell ${toneClass(row.leftTone)}`}>{row.leftText}</td>
             <td class={`mono val-cell ${toneClass(row.rightTone)}`}>{row.rightText}</td>
@@ -203,6 +205,10 @@
 
   .dim-cell {
     font-weight: 600;
+    vertical-align: middle;
+  }
+
+  .dim-inner {
     display: flex;
     align-items: center;
     gap: 0.45rem;

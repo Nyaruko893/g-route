@@ -428,8 +428,9 @@
 
   .cmd-text {
     flex: 1;
-    padding: 0.68rem 0.85rem;
-    font-size: 12.5px;
+    min-width: 0;
+    padding: 0.65rem 0.72rem;
+    font-size: 11.5px;
     font-weight: 600;
     overflow-x: auto;
     white-space: nowrap;

@@ -65,13 +65,14 @@
   // Merge user session entries with sample presets when opening Diff with only 1 report
   const diffCandidates = $derived.by((): readonly StoredReportEntry[] => {
     if (history.length >= 2) return history;
-    const seen = new Set(history.map((h) => h.id));
+    const seenIds = new Set(history.map((h) => h.id));
+    const seenLabels = new Set(history.map((h) => h.label));
     const extras: StoredReportEntry[] = SAMPLE_REPORTS.map((s) => ({
       id: s.id,
       label: s.report.lbl ?? s.shortName,
       isSample: true,
       report: s.report,
-    })).filter((e) => !seen.has(e.id));
+    })).filter((e) => !seenIds.has(e.id) && !seenLabels.has(e.label));
     return [...history, ...extras];
   });
 

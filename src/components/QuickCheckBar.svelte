@@ -50,7 +50,7 @@
   <div class="qbar-grid">
     <div class="qcell">
       <div class="qcell-top">
-        <span class="mono qk">01 分流基线 (国内直连)</span>
+        <span class="mono qk">01 国内直连</span>
         <span class={toneClass(summary.topologyTone)}>
           {domestic.isChinaIp ? '[DIRECT]' : domestic.status === 'running' ? '[WAIT]' : '[GLOBAL]'}
         </span>
@@ -69,7 +69,7 @@
 
     <div class="qcell">
       <div class="qcell-top">
-        <span class="mono qk">02 通用海外 IPv4</span>
+        <span class="mono qk">02 通用 IPv4</span>
         <span class={toneClass(v4.meta?.broadcastDrift ? 'diff' : v4.status === 'ok' ? 'ok' : 'wait')}>
           {v4.status === 'ok' ? `[${v4.meta?.country ?? 'OK'}]` : v4.status === 'running' ? '[WAIT]' : '[N/A]'}
         </span>
@@ -87,14 +87,14 @@
         {#if v4.meta}
           AS{v4.meta.asn ?? '?'} {v4.meta.org ?? ''}
         {:else}
-          {v4.source ?? '通用海外规则出口'}
+          {v4.source ?? '默认出站 IPv4'}
         {/if}
       </div>
     </div>
 
     <div class="qcell">
       <div class="qcell-top">
-        <span class="mono qk">03 通用海外 IPv6</span>
+        <span class="mono qk">03 通用 IPv6</span>
         <span class={toneClass(summary.dualStackMismatch ? 'leak' : v6.status === 'ok' ? 'ok' : 'wait')}>
           {summary.dualStackMismatch
             ? '[跨国冲突]'
@@ -125,7 +125,7 @@
 
     <div class="qcell">
       <div class="qcell-top">
-        <span class="mono qk">04 WebRTC / STUN UDP</span>
+        <span class="mono qk">04 WebRTC UDP</span>
         <span class={toneClass(summary.udpTone)}>
           {summary.isUdpDomesticLeak ? '[路径不一致]' : summary.udpTone === 'diff' ? '[独立出口]' : summary.udpTone === 'ok' ? '[一致]' : '[WAIT]'}
         </span>

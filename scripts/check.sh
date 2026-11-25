@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
-# G-ROUTE v3 // Google 生态送中与全链路分流体检仪 (Linux / macOS / VPS)
-# 权限契约: 零提权(不需 sudo) · 零读磁盘配置/订阅/SSH · 零数据上传 · 零二进制下载
+# G-ROUTE v3 // Google 连通性与路由归属诊断工具 (Linux / macOS)
+# 只读模式: 不需 sudo · 不读取本地配置/SSH · 不上传诊断数据 · 不下载二进制
 # 零第三方依赖 (仅需 bash + curl + POSIX awk/sed/grep/base64; 可选 gzip)
 set -u
 

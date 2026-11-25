@@ -1,8 +1,8 @@
-﻿<#
+<#
 .SYNOPSIS
-  G-ROUTE v3 // Google 生态送中与全链路分流体检仪 (Windows PowerShell 5.1 & 7)
-  权限契约: 零 UAC 提权 · 零读磁盘配置/代理订阅/SSH/Cookie · 零数据上传 · 零二进制下载
-  支持交互全局入口、并行 6 桶分流雷达、白名单只读代理分组发现、零依赖本地离线 SVG 与 PNG 直出。
+  G-ROUTE v3 // Google 连通性与路由归属诊断工具 (Windows PowerShell 5.1 & 7)
+  只读模式: 不申请 UAC · 不读取本地配置/SSH/Cookie · 不上传诊断数据 · 不下载二进制
+  支持交互菜单、多出口路由聚类、本地控制接口只读核对及本地离线 SVG/PNG 导出。
 
 .EXAMPLE
   irm https://<origin>/ps | iex
@@ -46,6 +46,7 @@ $G_ROUTE_ORIGIN = if ($env:G_ROUTE_ORIGIN) { $env:G_ROUTE_ORIGIN } else { "__G_R
 if (-not $Controller -and $env:G_ROUTE_CONTROLLER) { $Controller = $env:G_ROUTE_CONTROLLER }
 if (-not $Secret -and $env:G_ROUTE_SECRET) { $Secret = $env:G_ROUTE_SECRET }
 if (-not $Inspect -and $env:G_ROUTE_INSPECT -eq "1") { $Inspect = $true }
+if (-not $DryRun -and $env:G_ROUTE_DRYRUN -eq "1") { $DryRun = $true }
 $NoColor = [bool]$env:NO_COLOR
 
 $UA = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/134.0.0.0 Safari/537.36"

@@ -271,7 +271,7 @@ async function handleScript(request: Request, env: Env, kind: 'sh' | 'ps'): Prom
 
   const url = new URL(request.url);
   const safeOrigin = SAFE_ORIGIN_RE.test(url.origin) ? url.origin : '__G_ROUTE_ORIGIN__';
-  const raw = kind === 'sh' ? checkShTemplate : checkPsTemplate;
+  const raw = (kind === 'sh' ? checkShTemplate : checkPsTemplate).replace(/^\uFEFF/, '');
   const injected = raw.replaceAll('__G_ROUTE_ORIGIN__', safeOrigin);
   // Ensure pure LF for Bash so Windows-hosted builds never emit $'\r' syntax errors on Linux/macOS
   const body = kind === 'sh' ? injected.replace(/\r\n/g, '\n') : injected;

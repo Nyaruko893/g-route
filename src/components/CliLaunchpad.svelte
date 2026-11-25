@@ -47,13 +47,13 @@
     }
 
     if (cmdMode === 'audit') {
-      return `iwr ${origin}/ps -OutFile g-route.ps1; notepad g-route.ps1; .\\g-route.ps1 -Svg -NoLink`;
+      return `(irm ${origin}/ps) | Set-Content -Encoding UTF8 g-route.ps1; notepad g-route.ps1; .\\g-route.ps1 -Svg -NoLink`;
     }
     if (cmdMode === 'controller') {
       return `try { $env:G_ROUTE_INSPECT='1'; irm ${origin}/ps | iex } finally { Remove-Item Env:G_ROUTE_INSPECT -EA SilentlyContinue }`;
     }
     if (cmdMode === 'dryrun') {
-      return `iwr ${origin}/ps -OutFile g-route.ps1; .\\g-route.ps1 -DryRun`;
+      return `try { $env:G_ROUTE_DRYRUN='1'; irm ${origin}/ps | iex } finally { Remove-Item Env:G_ROUTE_DRYRUN -EA SilentlyContinue }`;
     }
     return `irm ${origin}/ps | iex`;
   });

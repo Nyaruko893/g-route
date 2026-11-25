@@ -34,7 +34,8 @@ param(
   [switch]$NoLink,
   [switch]$DryRun,
   [switch]$Vps,
-  [switch]$ProxyMode
+  [switch]$ProxyMode,
+  [switch]$ProbeSearch
 )
 
 $ErrorActionPreference = "Continue"
@@ -361,7 +362,8 @@ function Show-DryRunAudit {
   Write-BoxLine "  - claude.ai/cdn-cgi/trace               Anthropic 实见出口 / WARP / colo" "Gray"
   Write-BoxLine "  - ipwho.is/<split_ip>                   仅对去重后的新增非 WARP 出口查 ASN" "Gray"
   Write-BoxLine "  - gspe1-ssl.ls.apple.com/pep/gcc           Apple 第三方地域对照" "Gray"
-  Write-BoxLine "  - gemini / notebooklm / youtube / play / google / policies  Google 6 路" "Gray"
+  Write-BoxLine "  - gemini / notebooklm / youtube / play / searchdomaincheck / policies" "Gray"
+  Write-BoxLine ("  - 主动 SERP 爬取 (-ProbeSearch): {0}" -f $(if ($ProbeSearch) { "开启 (主动探测 /search，注意防频控)" } else { "默认关闭 (防自伤保护，仅查 searchdomaincheck)" })) "Gray"
   Write-BoxRule "mid"
   Write-BoxLine "[当前会话被动识别]" "Yellow"
   Write-BoxLine ("  - IP 脱敏: {0}" -f $(if ($Full) { "关闭 (-Full 完整显示)" } else { "开启 (默认 38.59.*.*)" })) "Gray"
@@ -377,7 +379,7 @@ function Show-DryRunAudit {
 # ---------------------------------------------------------------------------
 $hasExplicitFlags = (
   $Quick -or $Inspect -or ($Controller -ne "") -or $DryRun -or $Json -or
-  $Svg -or ($SvgPath -ne "") -or $Png -or ($PngPath -ne "") -or
+  $Svg -or ($SvgPath -ne "") -or $Png -or ($PngPath -ne "") -or $ProbeSearch -or
   $V4 -or $V6 -or $Full -or $NoLink -or $Vps -or $ProxyMode -or ($Proxy -ne "")
 )
 $isInteractiveTty = $false
@@ -456,6 +458,7 @@ function Invoke-CurlBatch {
     $bodyFile = Join-Path $tmpRoot "$id.body"
     $argList = New-Object System.Collections.Generic.List[string]
     $argList.Add("-sS")
+    $argList.Add("--compressed")
     $argList.Add("--max-time")
     $argList.Add($(if ($j.Timeout) { [string]$j.Timeout } else { "8" }))
     $argList.Add("-A")
@@ -491,7 +494,7 @@ function Invoke-CurlBatch {
   $results = @{}
   foreach ($item in $procs) {
     $p = $item.Proc
-    $done = $p.WaitForExit(11000)
+    $done = $p.WaitForExit(14500)
     if (-not $done) {
       try { $p.Kill() } catch {}
     }
@@ -746,32 +749,79 @@ try {
     }
   }
 
+  # Local frequency cooldown guardrail (10-minute sliding window per masked exit)
+  $script:cooldownWarn = ""
+  try {
+    $cdKey = Mask-IpAddress ($stackBase[$activeVers[0]].RawIp)
+    $cdFile = Join-Path ([IO.Path]::GetTempPath()) "groute_cooldown.json"
+    $nowSec = [int64][DateTimeOffset]::UtcNow.ToUnixTimeSeconds()
+    $cdMap = @{}
+    if (Test-Path $cdFile) {
+      $rawCd = Get-Content -Path $cdFile -Raw -ErrorAction SilentlyContinue
+      if ($rawCd) {
+        $parsedCd = $rawCd | ConvertFrom-Json
+        foreach ($prop in $parsedCd.PSObject.Properties) {
+          $fresh = @($prop.Value | Where-Object { ($nowSec - [int64]$_) -lt 600 })
+          if ($fresh.Count -gt 0) { $cdMap[$prop.Name] = $fresh }
+        }
+      }
+    }
+    $curList = if ($cdMap.ContainsKey($cdKey)) { @($cdMap[$cdKey]) } else { @() }
+    $curList += $nowSec
+    $cdMap[$cdKey] = $curList
+    if ($curList.Count -ge 3) {
+      $script:cooldownWarn = "[!] 冷却提醒: 当前出口 ($cdKey) 10 分钟内已运行 $($curList.Count) 次体检，高频探测易触发 Google /sorry/ 风控"
+    }
+    [IO.File]::WriteAllText($cdFile, ($cdMap | ConvertTo-Json -Compress), [System.Text.Encoding]::UTF8)
+  } catch {}
+
   # -------------------------------------------------------------------------
-  # Wave 2: Parallel Google 6-Way Ground Truth + Deduplicated Split ASN Lookups
+  # Wave 2: Staggered Google 6-Way Ground Truth (Anti-Self-Harm Micro-Batches)
   # -------------------------------------------------------------------------
-  Write-ProgressBar 2 4 "并发实测 Google 6 路真值与独立出口归属..."
-  $w2Jobs = @()
+  Write-ProgressBar 2 4 "错峰实测 Google 6 路真值与独立出口归属..."
+  $w2JobsA = @()
+  $w2JobsB = @()
   foreach ($ver in $activeVers) {
     $sf = "-$ver"
-    $w2Jobs += @{ Id = "v${ver}_gem";  Url = "https://gemini.google.com/app"; Args = @($sf, "-L"); Timeout = 9 }
-    $w2Jobs += @{ Id = "v${ver}_nlm";  Url = "https://notebooklm.google.com/"; Args = @($sf, "-I"); Timeout = 7 }
-    $w2Jobs += @{ Id = "v${ver}_yt";   Url = "https://www.youtube.com/premium"; Args = @($sf, "-L", "-H", "Accept-Language: en-US,en;q=0.9", "-H", "Cookie: $SocsCookie"); Timeout = 9 }
-    $w2Jobs += @{ Id = "v${ver}_play"; Url = "https://play.google.com/"; Args = @($sf, "-L", "-H", "Accept-Language: en-US,en;q=0.9"); Timeout = 9 }
-    $w2Jobs += @{ Id = "v${ver}_sdom"; Url = "https://www.google.com/searchdomaincheck?format=domain"; Args = @($sf); Timeout = 7 }
-    $w2Jobs += @{ Id = "v${ver}_srch"; Url = "https://www.google.com/search?q=curl&ie=UTF-8"; Args = @($sf, "-L", "-H", "Accept-Language: en-US,en;q=0.9", "-H", "Sec-Fetch-Dest: document", "-H", "Sec-Fetch-Mode: navigate", "-H", "Sec-Fetch-Site: none"); Timeout = 9 }
-    $w2Jobs += @{ Id = "v${ver}_trm";  Url = "https://policies.google.com/terms?hl=en"; Args = @($sf, "-L"); Timeout = 9 }
+    $w2JobsA += @{ Id = "v${ver}_gem";  Url = "https://gemini.google.com/app"; Args = @($sf, "-L", "-H", "Accept-Language: en-US,en;q=0.9"); Timeout = 12 }
+    $w2JobsA += @{ Id = "v${ver}_nlm";  Url = "https://notebooklm.google.com/"; Args = @($sf, "-I"); Timeout = 7 }
+    $w2JobsA += @{ Id = "v${ver}_yt";   Url = "https://www.youtube.com/premium"; Args = @($sf, "-L", "-H", "Accept-Language: en-US,en;q=0.9", "-H", "Cookie: $SocsCookie"); Timeout = 10 }
+    $w2JobsB += @{ Id = "v${ver}_play"; Url = "https://play.google.com/"; Args = @($sf, "-L", "-H", "Accept-Language: en-US,en;q=0.9"); Timeout = 10 }
+    $w2JobsB += @{ Id = "v${ver}_sdom"; Url = "https://www.google.com/searchdomaincheck?format=domain"; Args = @($sf); Timeout = 7 }
+    $w2JobsB += @{ Id = "v${ver}_trm";  Url = "https://policies.google.com/terms?hl=en"; Args = @($sf, "-L", "-H", "Accept-Language: en-US,en;q=0.9"); Timeout = 10 }
+    if ($ProbeSearch) {
+      $w2JobsB += @{ Id = "v${ver}_srch"; Url = "https://www.google.com/search?q=weather&hl=en&gbv=1"; Args = @($sf, "-L", "-H", "Accept-Language: en-US,en;q=0.9", "-H", "Sec-Fetch-Dest: document", "-H", "Sec-Fetch-Mode: navigate", "-H", "Sec-Fetch-Site: none"); Timeout = 9 }
+    }
   }
   $asnIdx = 0
   $asnKeyMap = @{}
   foreach ($nip in $needAsnIps) {
     $aid = "asn_$asnIdx"
     $asnKeyMap[$aid] = $nip.ToLowerInvariant()
-    $w2Jobs += @{ Id = $aid; Url = "https://ipwho.is/$nip"; Timeout = 5 }
+    $w2JobsA += @{ Id = $aid; Url = "https://ipwho.is/$nip"; Timeout = 5 }
     $asnIdx += 1
   }
 
-  $w2 = Invoke-CurlBatch -Jobs $w2Jobs
+  $w2 = Invoke-CurlBatch -Jobs $w2JobsA
+  Start-Sleep -Milliseconds 250
+  $w2B = Invoke-CurlBatch -Jobs $w2JobsB
+  foreach ($bk in $w2B.Keys) { $w2[$bk] = $w2B[$bk] }
   Write-ProgressBar 3 4 "聚合分流拓扑与诊断结论..."
+
+  function Test-GoogleSorry {
+    param($Res)
+    if ($null -eq $Res) { return $false }
+    if ($Res.Http -eq "429") { return $true }
+    if ($Res.Url -and $Res.Url -match "(?i)google\.com/sorry|/sorry/index") { return $true }
+    if ($Res.Text -and $Res.Text -match "(?i)unusual traffic from|our systems have detected|unaddressed abuse|/sorry/index|g-recaptcha|(?m)^location:.*google\.com/sorry") { return $true }
+    return $false
+  }
+
+  function Test-GoogleJsWall {
+    param($Res)
+    if ($null -eq $Res -or -not $Res.Text) { return $false }
+    return ($Res.Text -match "(?i)/httpservice/retry/enablejs|sg_ss|Turn on JavaScript|enablejs\?sei=")
+  }
 
   foreach ($k in $w2.Keys) {
     if ($w2[$k].RemoteIp -match "^(198\.(18|19)\.\d+\.\d+|fc[0-9a-f:]+|fd[0-9a-f:]+)") {
@@ -828,15 +878,23 @@ try {
     $gMeta = if ($gipRaw -and $gipRaw -ne $rawIp) { Get-MetaForIp $gipRaw } else { $null }
 
     $gemRes = $w2["v${ver}_gem"]
-    $gemCc = ""
-    if ($gemRes.Code -eq 0) {
-      if ($gemRes.Text -match ',2,1,200,"([A-Z]{3})"') { $gemCc = $Matches[1] }
-      elseif ($gemRes.Text -match '"countryCode":"([A-Z]{2})"') { $gemCc = $Matches[1] }
+    $gemCc = ""; $gemSt = "err"
+    if (Test-GoogleSorry $gemRes) {
+      $gemSt = "captcha"
+    } elseif ($gemRes.Text -match ',2,1,200,"([A-Z]{3})"') {
+      $gemCc = $Matches[1]; $gemSt = "ok"
+    } elseif ($gemRes.Text -match '"countryCode":"([A-Z]{2})"') {
+      $gemCc = $Matches[1]; $gemSt = "ok"
+    } elseif ($gemRes.Code -eq 28) {
+      $gemSt = "timeout"
     }
 
     $nlmRes = $w2["v${ver}_nlm"]
-    $nlmStatus = "err"
-    if ($nlmRes.Code -eq 0) {
+    $nlmStatus = "err"; $nlmHttpCode = $null
+    if (Test-GoogleSorry $nlmRes) {
+      $nlmStatus = "captcha"
+    } elseif ($nlmRes.Code -eq 0) {
+      if ($nlmRes.Http -match "^\d{3}$" -and $nlmRes.Http -ne "000") { $nlmHttpCode = [int]$nlmRes.Http }
       if ($nlmRes.Text -match "(?im)^location:.*location=unsupported") { $nlmStatus = "unavail" }
       elseif ($nlmRes.Text -match "(?im)^location:.*(notebook\.google\.com|accounts\.google\.com)" -or $nlmRes.Http -in @("200", "301", "302")) { $nlmStatus = "ok" }
     }
@@ -852,9 +910,11 @@ try {
     }
 
     $playRes = $w2["v${ver}_play"]
-    $playCc = ""
-    if ($playRes.Code -eq 0 -and $playRes.Text -match '<div class="yVZQTb">([^<(]+)') {
-      $playCc = $Matches[1].Trim()
+    $playCc = ""; $playSt = ""
+    if (Test-GoogleSorry $playRes) {
+      $playSt = "captcha"
+    } elseif ($playRes.Code -eq 0 -and $playRes.Text -match '<div class="yVZQTb">([^<(]+)') {
+      $playCc = $Matches[1].Trim(); $playSt = "ok"
     }
 
     $sdRes = $w2["v${ver}_sdom"]
@@ -867,19 +927,28 @@ try {
       }
     }
 
-    $srRes = $w2["v${ver}_srch"]
-    $scap = "err"
-    if ($srRes.Code -eq 0 -and $srRes.Http -ne "000") {
-      if ($srRes.Http -eq "429" -or $srRes.Text -match "(?i)unusual traffic from|is blocked|unaddressed abuse|/sorry/") { $scap = "captcha" }
-      elseif ($srRes.Url -match "(?i)google\.com\.hk|google\.cn") { $scap = "hk" }
-      else { $scap = "ok" }
+    $srRes = if ($w2.ContainsKey("v${ver}_srch")) { $w2["v${ver}_srch"] } else { $null }
+    $scap = "skipped"
+    if ($ProbeSearch) {
+      $scap = "err"
+      if (Test-GoogleSorry $srRes) {
+        $scap = "captcha"
+      } elseif ($null -ne $srRes -and $srRes.Code -eq 0 -and $srRes.Http -ne "000") {
+        if ($srRes.Url -match "(?i)google\.com\.hk|google\.cn") { $scap = "hk" }
+        elseif (Test-GoogleJsWall $srRes) { $scap = "jswall" }
+        elseif ($srRes.Http -eq "200" -and $srRes.Text -match '(?i)<title>.*Google|id="search"|id="rso"|class="g"') { $scap = "ok" }
+      }
+    } elseif (Test-GoogleSorry $sdRes) {
+      $scap = "captcha"
     }
 
     $trmRes = $w2["v${ver}_trm"]
-    $trmCv = ""; $trmEnt = ""
-    if ($trmRes.Code -eq 0) {
+    $trmCv = ""; $trmEnt = ""; $trmSt = ""
+    if (Test-GoogleSorry $trmRes) {
+      $trmSt = "captcha"
+    } elseif ($trmRes.Code -eq 0) {
       if ($trmRes.Text -match "(?i)Country\s+version(?:\s*<[^>]+>)*\s*:\s*(?:<[^>]+>\s*)*([A-Za-z][A-Za-z\s,\.\(\)&'-]{1,42})") {
-        $trmCv = $Matches[1].Trim()
+        $trmCv = $Matches[1].Trim(); $trmSt = "ok"
       }
       if ($trmRes.Text -match "(Google Ireland Limited|Google LLC|Google Asia Pacific|Google Commerce Limited)") {
         $trmEnt = $Matches[1]
@@ -894,7 +963,8 @@ try {
     if ($null -ne $ytRes.Ms)   { $rttObj.yt   = $ytRes.Ms }
     if ($null -ne $ggc.Ms)     { $rttObj.cdn  = $ggc.Ms }
     if ($null -ne $playRes.Ms) { $rttObj.play = $playRes.Ms }
-    if ($null -ne $srRes.Ms)   { $rttObj.srch = $srRes.Ms }
+    if ($null -ne $srRes -and $null -ne $srRes.Ms) { $rttObj.srch = $srRes.Ms }
+    elseif ($null -ne $sdRes.Ms) { $rttObj.srch = $sdRes.Ms }
 
     $obj = [ordered]@{}
     $obj.ip = Mask-IpAddress $rawIp
@@ -909,18 +979,22 @@ try {
       if ($gMeta.Org)  { $obj.gorg  = $gMeta.Org }
       if ($gMeta.Kind) { $obj.gkind = $gMeta.Kind }
     }
-    if ($gemCc)     { $obj.gem  = $gemCc }
-    if ($nlmStatus) { $obj.nlm  = $nlmStatus }
-    if ($ytStatus)  { $obj.yt   = $ytStatus }
-    if ($ytGl)      { $obj.ytg  = $ytGl }
-    if ($ggc.Cdn)   { $obj.cdn  = $ggc.Cdn }
-    if ($ggc.Cdnu)  { $obj.cdnu = $true }
-    if ($playCc)    { $obj.play = $playCc }
-    if ($sdom)      { $obj.sdom = $sdom }
-    if ($scap)      { $obj.scap = $scap }
-    if ($trmCv)     { $obj.trm  = $trmCv }
-    if ($trmEnt)    { $obj.ent  = $trmEnt }
-    if ($dnsMode)   { $obj.dns  = $dnsMode }
+    if ($gemCc)     { $obj.gem   = $gemCc }
+    if ($gemSt)     { $obj.gemst = $gemSt }
+    if ($nlmStatus) { $obj.nlm   = $nlmStatus }
+    if ($null -ne $nlmHttpCode) { $obj.nlmc = $nlmHttpCode }
+    if ($ytStatus)  { $obj.yt    = $ytStatus }
+    if ($ytGl)      { $obj.ytg   = $ytGl }
+    if ($ggc.Cdn)   { $obj.cdn   = $ggc.Cdn }
+    if ($ggc.Cdnu)  { $obj.cdnu  = $true }
+    if ($playCc)    { $obj.play  = $playCc }
+    if ($playSt -eq "captcha") { $obj.playst = "captcha" }
+    if ($sdom)      { $obj.sdom  = $sdom }
+    if ($scap)      { $obj.scap  = $scap }
+    if ($trmCv)     { $obj.trm   = $trmCv }
+    if ($trmSt -eq "captcha")  { $obj.trmst = "captcha" }
+    if ($trmEnt)    { $obj.ent   = $trmEnt }
+    if ($dnsMode)   { $obj.dns   = $dnsMode }
     if ($rttObj.Count -gt 0) { $obj.rtt = $rttObj }
     $stackData[$ver] = $obj
   }
@@ -1279,80 +1353,133 @@ try {
       @{ Host = "v4.ident.me";                               Group = "基线" }
     )
 
+    $tlsDefault = [System.Security.Authentication.SslProtocols]::None
     $tls12 = [System.Security.Authentication.SslProtocols]3072
     $useHttpConnect = ($hasExplicitProxy -and -not $detectedTun -and $effectiveProxy -match "^https?://([^:/\s]+):(\d+)")
     $pxHost = if ($useHttpConnect) { $Matches[1] } else { "" }
     $pxPort = if ($useHttpConnect) { [int]$Matches[2] } else { 0 }
 
-    $pending = @()
-    $tlsPending = @()
-    $sockets = @()
-    try {
+    $capturedByHost = @{}
+    function Merge-ConnectionsSnapshot {
+      param([object[]]$ConnList)
       foreach ($t in $targets) {
-        try {
-          $tcp = New-Object System.Net.Sockets.TcpClient
-          $ar = if ($useHttpConnect) {
-            $tcp.BeginConnect($pxHost, $pxPort, $null, $null)
-          } else {
-            $tcp.BeginConnect($t.Host, 443, $null, $null)
-          }
-          $pending += @{ Host = $t.Host; Tcp = $tcp; Ar = $ar }
-        } catch {}
+        $h = $t.Host
+        if ($capturedByHost.ContainsKey($h)) { continue }
+        $hit = $ConnList | Where-Object { $_.metadata.host -eq $h -or $_.metadata.sniffHost -eq $h } | Select-Object -Last 1
+        if ($hit) { $capturedByHost[$h] = $hit }
+      }
+    }
+
+    try {
+      # Step A: Passive zero-packet harvest from currently active connections first
+      $cPre = Invoke-ControllerApi -Endpoint $found.Endpoint -Path "/connections" -ApiSecret $ApiSecret -TimeoutMs 1500
+      if ($cPre.Code -eq "200") {
+        try { Merge-ConnectionsSnapshot @(($cPre.Body | ConvertFrom-Json).connections) } catch {}
       }
 
-      $tcpDeadline = [DateTime]::UtcNow.AddMilliseconds(1800)
-      foreach ($pConn in $pending) {
+      # Step B: Only for missing hosts, probe in gentle batches of 4 with real HTTP/1.1 HEAD + graceful close
+      $missingTargets = @($targets | Where-Object { -not $capturedByHost.ContainsKey($_.Host) })
+      for ($bStart = 0; $bStart -lt $missingTargets.Count; $bStart += 4) {
+        $bEnd = [Math]::Min($bStart + 3, $missingTargets.Count - 1)
+        $batch = $missingTargets[$bStart..$bEnd]
+        $pending = @()
+        $tlsPending = @()
+        $sockets = @()
         try {
-          $remMs = [Math]::Max(1, [int]($tcpDeadline - [DateTime]::UtcNow).TotalMilliseconds)
-          if ($pConn.Ar.AsyncWaitHandle.WaitOne($remMs, $false) -and $pConn.Tcp.Connected) {
-            $pConn.Tcp.EndConnect($pConn.Ar)
-            $ns = $pConn.Tcp.GetStream()
-            $ns.ReadTimeout = 1600; $ns.WriteTimeout = 1600
-            if ($useHttpConnect) {
-              $req = [System.Text.Encoding]::ASCII.GetBytes("CONNECT $($pConn.Host):443 HTTP/1.1`r`nHost: $($pConn.Host):443`r`n`r`n")
-              $ns.Write($req, 0, $req.Length); $ns.Flush()
-              $rb = New-Object byte[] 512
-              $rn = $ns.Read($rb, 0, $rb.Length)
-              if ([System.Text.Encoding]::ASCII.GetString($rb, 0, $rn) -notmatch "HTTP/\S+\s+200") {
-                $pConn.Tcp.Close(); continue
+          foreach ($t in $batch) {
+            try {
+              $tcp = New-Object System.Net.Sockets.TcpClient
+              $ar = if ($useHttpConnect) {
+                $tcp.BeginConnect($pxHost, $pxPort, $null, $null)
+              } else {
+                $tcp.BeginConnect($t.Host, 443, $null, $null)
               }
+              $pending += @{ Host = $t.Host; Tcp = $tcp; Ar = $ar }
+            } catch {}
+          }
+
+          $tcpDeadline = [DateTime]::UtcNow.AddMilliseconds(1800)
+          foreach ($pConn in $pending) {
+            try {
+              $remMs = [Math]::Max(1, [int]($tcpDeadline - [DateTime]::UtcNow).TotalMilliseconds)
+              if ($pConn.Ar.AsyncWaitHandle.WaitOne($remMs, $false) -and $pConn.Tcp.Connected) {
+                $pConn.Tcp.EndConnect($pConn.Ar)
+                $ns = $pConn.Tcp.GetStream()
+                $ns.ReadTimeout = 1600; $ns.WriteTimeout = 1600
+                if ($useHttpConnect) {
+                  $req = [System.Text.Encoding]::ASCII.GetBytes("CONNECT $($pConn.Host):443 HTTP/1.1`r`nHost: $($pConn.Host):443`r`n`r`n")
+                  $ns.Write($req, 0, $req.Length); $ns.Flush()
+                  $rb = New-Object byte[] 512
+                  $rn = $ns.Read($rb, 0, $rb.Length)
+                  if ([System.Text.Encoding]::ASCII.GetString($rb, 0, $rn) -notmatch "HTTP/\S+\s+200") {
+                    $pConn.Tcp.Close(); continue
+                  }
+                }
+                $ssl = New-Object System.Net.Security.SslStream($ns, $false, { $true })
+                $ssl.ReadTimeout = 2000; $ssl.WriteTimeout = 2000
+                $sar = try {
+                  $ssl.BeginAuthenticateAsClient($pConn.Host, $null, $tlsDefault, $false, $null, $null)
+                } catch {
+                  $ssl.BeginAuthenticateAsClient($pConn.Host, $null, $tls12, $false, $null, $null)
+                }
+                $tlsPending += @{ Host = $pConn.Host; Tcp = $pConn.Tcp; Ssl = $ssl; Sar = $sar }
+              } else {
+                $pConn.Tcp.Close()
+              }
+            } catch {
+              try { $pConn.Tcp.Close() } catch {}
             }
-            $ssl = New-Object System.Net.Security.SslStream($ns, $false, { $true })
-            $ssl.ReadTimeout = 2000; $ssl.WriteTimeout = 2000
-            $sar = $ssl.BeginAuthenticateAsClient($pConn.Host, $null, $tls12, $false, $null, $null)
-            $tlsPending += @{ Tcp = $pConn.Tcp; Ssl = $ssl; Sar = $sar }
-          } else {
-            $pConn.Tcp.Close()
           }
-        } catch {
-          try { $pConn.Tcp.Close() } catch {}
+
+          $tlsDeadline = [DateTime]::UtcNow.AddMilliseconds(2400)
+          foreach ($tp in $tlsPending) {
+            try {
+              $remMs = [Math]::Max(1, [int]($tlsDeadline - [DateTime]::UtcNow).TotalMilliseconds)
+              if ($tp.Sar.AsyncWaitHandle.WaitOne($remMs, $false)) {
+                $tp.Ssl.EndAuthenticateAsClient($tp.Sar)
+                # Send a valid, lightweight HTTP HEAD so Google never sees 0-byte TLS scanner drops
+                $hPath = if ($tp.Host -match "google\.com$|googleapis\.com$|googlevideo\.com$") { "/generate_204" } else { "/" }
+                $headReq = "HEAD $hPath HTTP/1.1`r`nHost: $($tp.Host)`r`nUser-Agent: $UA`r`nAccept: */*`r`nConnection: keep-alive`r`n`r`n"
+                $headBytes = [System.Text.Encoding]::ASCII.GetBytes($headReq)
+                $tp.Ssl.Write($headBytes, 0, $headBytes.Length)
+                $tp.Ssl.Flush()
+                $sockets += @{ Tcp = $tp.Tcp; Ssl = $tp.Ssl }
+              } else {
+                try { $tp.Ssl.Dispose() } catch {}
+                try { $tp.Tcp.Close() } catch {}
+              }
+            } catch {
+              try { $tp.Ssl.Dispose() } catch {}
+              try { $tp.Tcp.Close() } catch {}
+            }
+          }
+
+          # Read tiny response headers gracefully while connections are registered in controller
+          $rbuf = New-Object byte[] 256
+          foreach ($s in $sockets) {
+            try {
+              $s.Ssl.ReadTimeout = 500
+              [void]$s.Ssl.Read($rbuf, 0, $rbuf.Length)
+            } catch {}
+          }
+          $cRes = Invoke-ControllerApi -Endpoint $found.Endpoint -Path "/connections" -ApiSecret $ApiSecret -TimeoutMs 2500
+          if ($cRes.Code -eq "200") {
+            try { Merge-ConnectionsSnapshot @(($cRes.Body | ConvertFrom-Json).connections) } catch {}
+          }
+        } finally {
+          foreach ($s in $sockets) {
+            try { $s.Tcp.Client.Shutdown([System.Net.Sockets.SocketShutdown]::Both) } catch {}
+            try { $s.Ssl.Dispose() } catch {}
+            try { $s.Tcp.Close() } catch {}
+          }
         }
+        if ($bEnd -lt $missingTargets.Count - 1) { Start-Sleep -Milliseconds 180 }
       }
 
-      $tlsDeadline = [DateTime]::UtcNow.AddMilliseconds(2400)
-      foreach ($tp in $tlsPending) {
-        try {
-          $remMs = [Math]::Max(1, [int]($tlsDeadline - [DateTime]::UtcNow).TotalMilliseconds)
-          if ($tp.Sar.AsyncWaitHandle.WaitOne($remMs, $false)) {
-            $tp.Ssl.EndAuthenticateAsClient($tp.Sar)
-            $sockets += @{ Tcp = $tp.Tcp; Ssl = $tp.Ssl }
-          } else {
-            try { $tp.Ssl.Dispose() } catch {}
-            try { $tp.Tcp.Close() } catch {}
-          }
-        } catch {
-          try { $tp.Ssl.Dispose() } catch {}
-          try { $tp.Tcp.Close() } catch {}
-        }
-      }
-
-      Start-Sleep -Milliseconds 250
-      $cRes = Invoke-ControllerApi -Endpoint $found.Endpoint -Path "/connections" -ApiSecret $ApiSecret -TimeoutMs 2500
-      if ($cRes.Code -ne "200") {
-        $script:localRuleErr = "[INFO] 读取 /connections 失败 (HTTP=$($cRes.Code))"
+      if ($capturedByHost.Count -eq 0 -and $cPre.Code -ne "200") {
+        $script:localRuleErr = "[INFO] 读取 /connections 失败 (HTTP=$($cPre.Code))"
         return
       }
-      $conns = @(($cRes.Body | ConvertFrom-Json).connections)
 
       $aiTopGroups = @{}
       $aiMismatchHosts = @()
@@ -1360,7 +1487,7 @@ try {
 
       foreach ($t in $targets) {
         $h = $t.Host
-        $hit = $conns | Where-Object { $_.metadata.host -eq $h -or $_.metadata.sniffHost -eq $h } | Select-Object -Last 1
+        $hit = if ($capturedByHost.ContainsKey($h)) { $capturedByHost[$h] } else { $null }
         if ($hit) {
           $rLbl = if ($hit.rulePayload) { "$($hit.rule)($($hit.rulePayload))" } else { "$($hit.rule)" }
           $rawChains = @($hit.chains)
@@ -1391,11 +1518,6 @@ try {
       }
     } catch {
       $script:localRuleErr = "[INFO] 控制 API 解析异常: $($_.Exception.Message)"
-    } finally {
-      foreach ($s in $sockets) {
-        try { $s.Ssl.Dispose() } catch {}
-        try { $s.Tcp.Close() } catch {}
-      }
     }
   }
 
@@ -1635,6 +1757,13 @@ try {
     [void]$alarmMsgs.Add(@{ Tone = "Cyan"; Text = "[i] 检出 Cloudflare WARP 出站: 部分业务经 WARP 转发，有效隔离原始机房段" })
   }
 
+  $anyGemCaptcha = (($v4Data -and $v4Data.gemst -eq "captcha") -or ($v6Data -and $v6Data.gemst -eq "captcha"))
+  $anyGemTimeout = (($v4Data -and $v4Data.gemst -eq "timeout") -or ($v6Data -and $v6Data.gemst -eq "timeout"))
+  $anyOtherCaptcha = (
+    ($v4Data -and ($v4Data.scap -eq "captcha" -or $v4Data.nlm -eq "captcha" -or $v4Data.playst -eq "captcha" -or $v4Data.trmst -eq "captcha")) -or
+    ($v6Data -and ($v6Data.scap -eq "captcha" -or $v6Data.nlm -eq "captcha" -or $v6Data.playst -eq "captcha" -or $v6Data.trmst -eq "captcha"))
+  )
+
   $effKind = if ($splitHit -and $p.gkind) { $p.gkind } else { $p.kind }
   $vTag = "CLEAN"; $vColor = "Green"
   $vText = if ($effKind -eq "hosting") { "云机房出口全绿可用 · 实测无送中无验证码 (反焦虑认证)" } else { "Google 全家桶全绿可用" }
@@ -1646,9 +1775,15 @@ try {
     $vText = if ($p.cc -and -not (Test-RestrictedCountry $p.cc)) {
       "实锤 Google 私有库送中 (公开库 $($p.cc) / Apple $(if($appleCc){$appleCc}else{'?'})，但 Google 判受限)"
     } else { "Google 生态判定为受限地区 / 送中" }
-  } elseif (($v4Data -and $v4Data.scap -eq "captcha") -or ($v6Data -and $v6Data.scap -eq "captcha")) {
+  } elseif ($anyGemCaptcha) {
+    $vTag = "PARTIAL"; $vColor = "Red"
+    $vText = "Gemini 触发 /sorry/ 异常流量拦截 (429)，请冷却 30 分钟或浏览器过验"
+  } elseif ($anyOtherCaptcha) {
     $vTag = "PARTIAL"; $vColor = "Yellow"
-    $vText = "AI 核心可用，但 Google Search 触发 /sorry/ 人机验证"
+    $vText = "检测到 Google /sorry/ 异常流量人机验证，建议降低探测频率或换出口"
+  } elseif ($anyGemTimeout) {
+    $vTag = "PARTIAL"; $vColor = "Yellow"
+    $vText = "Gemini 探测超时 (12s)，可能被临时限速或代理链路抖动"
   } elseif ($splitHit -or $slotIdx -ge 2) {
     $vTag = "SPLIT_ROUTE"; $vColor = "Cyan"
     if ($script:gemResolvedCluster -and $script:ggcCluster -and $script:gemResolvedCluster.Slot -ne $script:ggcCluster.Slot) {
@@ -1702,12 +1837,18 @@ try {
     $noPfx = if ($Ascii) { "[X] " } else { "$([char]0x2715) " }
     switch ($Kind) {
       "gem" {
+        if ($S.gemst -eq "captcha") { return @{ Text = "${noPfx}CAPTCHA (/sorry)"; Color = "Red"; Tone = "leak"; Ms = $msTxt } }
+        if ($S.gemst -eq "timeout") { return @{ Text = "${wnPfx}TIMEOUT (12s)"; Color = "Yellow"; Tone = "diff"; Ms = $msTxt } }
         if (-not $S.gem) { return @{ Text = "N/A"; Color = "DarkGray"; Tone = "muted"; Ms = $msTxt } }
         if (Test-RestrictedCountry $S.gem) { return @{ Text = "${noPfx}BLOCKED [$($S.gem)]"; Color = "Red"; Tone = "leak"; Ms = $msTxt } }
         return @{ Text = "${okPfx}OK [$($S.gem)]"; Color = "Green"; Tone = "ok"; Ms = $msTxt }
       }
       "nlm" {
-        if ($S.nlm -eq "ok") { return @{ Text = "${okPfx}OK (301)"; Color = "Green"; Tone = "ok"; Ms = $msTxt } }
+        if ($S.nlm -eq "captcha") { return @{ Text = "${noPfx}CAPTCHA (/sorry)"; Color = "Red"; Tone = "leak"; Ms = $msTxt } }
+        if ($S.nlm -eq "ok") {
+          $nc = if ($S.nlmc) { $S.nlmc } else { "301" }
+          return @{ Text = "${okPfx}OK ($nc)"; Color = "Green"; Tone = "ok"; Ms = $msTxt }
+        }
         if ($S.nlm -eq "unavail") { return @{ Text = "${noPfx}BLOCKED (302)"; Color = "Red"; Tone = "leak"; Ms = $msTxt } }
         return @{ Text = "N/A"; Color = "DarkGray"; Tone = "muted"; Ms = $msTxt }
       }
@@ -1724,6 +1865,7 @@ try {
         return @{ Text = "${okPfx}$t"; Color = "Green"; Tone = "ok"; Ms = $msTxt }
       }
       "play" {
+        if ($S.playst -eq "captcha") { return @{ Text = "${noPfx}CAPTCHA (/sorry)"; Color = "Red"; Tone = "leak"; Ms = $msTxt } }
         if (-not $S.play) { return @{ Text = "N/A"; Color = "DarkGray"; Tone = "muted"; Ms = $msTxt } }
         if (Test-RestrictedCountry $S.play) { return @{ Text = "${noPfx}$($S.play) [CN]"; Color = "Red"; Tone = "leak"; Ms = $msTxt } }
         return @{ Text = "${okPfx}$($S.play)"; Color = "Green"; Tone = "ok"; Ms = $msTxt }
@@ -1731,10 +1873,14 @@ try {
       "search" {
         if ($S.scap -eq "captcha") { return @{ Text = "${wnPfx}CAPTCHA (/sorry)"; Color = "Yellow"; Tone = "diff"; Ms = $msTxt } }
         if ($S.sdom -eq "hkredirect" -or $S.scap -eq "hk") { return @{ Text = "${noPfx}HK_REDIRECT (.hk)"; Color = "Red"; Tone = "leak"; Ms = $msTxt } }
-        if ($S.sdom -or $S.scap -eq "ok") { return @{ Text = "${okPfx}$(if($S.sdom){$S.sdom}else{'OK'}) (Clean)"; Color = "Green"; Tone = "ok"; Ms = $msTxt } }
+        if ($S.scap -eq "jswall") { return @{ Text = "${wnPfx}$(if($S.sdom){$S.sdom}else{'SERP'}) (JS墙)"; Color = "Yellow"; Tone = "diff"; Ms = $msTxt } }
+        if ($S.scap -eq "ok") { return @{ Text = "${okPfx}$(if($S.sdom){$S.sdom}else{'OK'}) (Clean)"; Color = "Green"; Tone = "ok"; Ms = $msTxt } }
+        if ($S.sdom -and (-not $S.scap -or $S.scap -eq "skipped")) { return @{ Text = "${okPfx}$($S.sdom) (域正常)"; Color = "Green"; Tone = "ok"; Ms = $msTxt } }
+        if ($S.sdom -and $S.scap -eq "err") { return @{ Text = "${wnPfx}$($S.sdom) (SERP异常)"; Color = "Yellow"; Tone = "diff"; Ms = $msTxt } }
         return @{ Text = "N/A"; Color = "DarkGray"; Tone = "muted"; Ms = $msTxt }
       }
       "terms" {
+        if ($S.trmst -eq "captcha") { return @{ Text = "${noPfx}CAPTCHA (/sorry)"; Color = "Red"; Tone = "leak"; Ms = "" } }
         if (-not $S.trm) { return @{ Text = "N/A"; Color = "DarkGray"; Tone = "muted"; Ms = "" } }
         if (Test-RestrictedCountry $S.trm) { return @{ Text = "${noPfx}$($S.trm) [CN]"; Color = "Red"; Tone = "leak"; Ms = "" } }
         if ($S.ent -eq "Google Ireland Limited") { return @{ Text = "${wnPfx}$($S.trm) (EEA)"; Color = "Yellow"; Tone = "diff"; Ms = "" } }
@@ -1765,6 +1911,7 @@ try {
     @{ Text = $vText; Color = "White" }
   )
   Write-BoxLine ("三方对照: 公开库={0}  |  Apple={1}  |  Google 实测={2}  |  DNS={3}" -f $(if($p.cc){$p.cc}else{"?"}), $(if($appleCc){$appleCc}else{"?"}), $(if($p.gem){$p.gem}else{"?"}), $(if($p.dns){$p.dns}else{"--"})) "DarkGray"
+  if ($script:cooldownWarn) { Write-BoxLine $script:cooldownWarn "Yellow" }
 
   # Section [01] 6-Bucket Split-Route Topology Radar
   Write-BoxRule "mid"

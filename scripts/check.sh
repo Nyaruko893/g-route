@@ -23,6 +23,7 @@ OPT_WITH_RULES=0
 OPT_ASCII=0
 OPT_COMPACT=0
 OPT_NO_MENU=0
+OPT_PROBE_SEARCH=0
 OPT_PROXY=""
 OPT_MODE=""
 OPT_CONTROLLER="${G_ROUTE_CONTROLLER:-}"
@@ -59,6 +60,7 @@ G-ROUTE v3 // Google 生态送中与全链路分流体检仪 (CLI)
   --dry-run                零发包安全审计模式: 打印全部只读 URL 与权限边界后退出
   --vps / --direct         强制按直连出站模式判定
   --proxy                  强制按代理/分流出站模式判定
+  --probe-search           显式开启主动 Google SERP (/search) 探测 (默认关闭以防触发 /sorry/)
   -h, --help               显示帮助
 EOF
   exit 0
@@ -78,6 +80,7 @@ while [ $# -gt 0 ]; do
     --ascii) OPT_ASCII=1 ;;
     --compact) OPT_COMPACT=1 ;;
     --no-menu) OPT_NO_MENU=1 ;;
+    --probe-search) OPT_PROBE_SEARCH=1 ;;
     --vps|--direct) OPT_MODE="vps" ;;
     --proxy) OPT_MODE="proxy" ;;
     --svg)
@@ -250,7 +253,8 @@ show_dry_run() {
   box_line "  - claude.ai/cdn-cgi/trace               Anthropic 实见出口 / WARP / colo" ""
   box_line "  - ipwho.is/<split_ip>                   仅对去重后的新增非 WARP 出口查 ASN" ""
   box_line "  - gspe1-ssl.ls.apple.com/pep/gcc           Apple 第三方地域对照" ""
-  box_line "  - gemini / notebooklm / youtube / play / google / policies  Google 6 路" ""
+  box_line "  - gemini / notebooklm / youtube / play / searchdomaincheck / policies" ""
+  box_line "  - 主动 SERP 爬取 (--probe-search): $( [ "$OPT_PROBE_SEARCH" -eq 1 ] && echo '开启 (注意防频控)' || echo '默认关闭 (防自伤保护，仅查 searchdomaincheck)' )" ""
   box_rule mid
   box_line "[当前会话被动识别]" "$C_YLW"
   box_line "  - IP 脱敏: $( [ "$OPT_FULL" -eq 1 ] && echo '关闭 (-f 完整显示)' || echo '开启 (默认 38.59.*.*)' )" ""
@@ -337,9 +341,9 @@ run_job() {
   local meta="$TMPDIR_GR/${id}.meta"
   (
     if [ -n "$EFFECTIVE_PROXY" ]; then
-      curl -sS --max-time "$tmo" -A "$UA" -x "$EFFECTIVE_PROXY" "$@" -o "$body" -w 'CODE=%{http_code}|TIME=%{time_total}|IP=%{remote_ip}|URL=%{url_effective}' "$url" >"$meta" 2>/dev/null
+      curl -sS --compressed --max-time "$tmo" -A "$UA" -x "$EFFECTIVE_PROXY" "$@" -o "$body" -w 'CODE=%{http_code}|TIME=%{time_total}|IP=%{remote_ip}|URL=%{url_effective}' "$url" >"$meta" 2>/dev/null
     else
-      curl -sS --max-time "$tmo" -A "$UA" "$@" -o "$body" -w 'CODE=%{http_code}|TIME=%{time_total}|IP=%{remote_ip}|URL=%{url_effective}' "$url" >"$meta" 2>/dev/null
+      curl -sS --compressed --max-time "$tmo" -A "$UA" "$@" -o "$body" -w 'CODE=%{http_code}|TIME=%{time_total}|IP=%{remote_ip}|URL=%{url_effective}' "$url" >"$meta" 2>/dev/null
     fi
     printf '%s\n' "$?" >"$TMPDIR_GR/${id}.rc"
   ) &
@@ -535,22 +539,43 @@ CF_BODY=$(job_body cf);   CF_IP=$(trace_get "$CF_BODY" ip);   CF_LOC=$(trace_get
 OAI_BODY=$(job_body oai); OAI_IP=$(trace_get "$OAI_BODY" ip); OAI_LOC=$(trace_get "$OAI_BODY" loc | tr '[:lower:]' '[:upper:]'); OAI_COLO=$(trace_get "$OAI_BODY" colo | tr '[:lower:]' '[:upper:]'); OAI_WARP=$(trace_get "$OAI_BODY" warp | tr '[:upper:]' '[:lower:]'); OAI_MS=$(job_ms oai)
 CLD_BODY=$(job_body cld); CLD_IP=$(trace_get "$CLD_BODY" ip); CLD_LOC=$(trace_get "$CLD_BODY" loc | tr '[:lower:]' '[:upper:]'); CLD_COLO=$(trace_get "$CLD_BODY" colo | tr '[:lower:]' '[:upper:]'); CLD_WARP=$(trace_get "$CLD_BODY" warp | tr '[:upper:]' '[:lower:]'); CLD_MS=$(job_ms cld)
 
+# Local frequency cooldown guardrail (10-min sliding window per masked exit IP)
+COOLDOWN_WARN=""
+CD_FILE="/tmp/groute_cooldown.log"
+CD_KEY=$(mask_ip "${V4_RAW_IP:-$V6_RAW_IP}")
+CD_NOW=$(date +%s 2>/dev/null || echo 0)
+if [ -n "$CD_KEY" ] && [ "$CD_NOW" -gt 0 ]; then
+  if [ -f "$CD_FILE" ]; then
+    awk -v now="$CD_NOW" '(now - $1) < 600' "$CD_FILE" > "${CD_FILE}.tmp" 2>/dev/null && mv "${CD_FILE}.tmp" "$CD_FILE" 2>/dev/null || true
+  fi
+  printf '%s %s\n' "$CD_NOW" "$CD_KEY" >> "$CD_FILE" 2>/dev/null || true
+  CD_CNT=$(awk -v k="$CD_KEY" '$2==k {c++} END{print c+0}' "$CD_FILE" 2>/dev/null || echo 0)
+  if [ "$CD_CNT" -ge 3 ]; then
+    COOLDOWN_WARN="[!] 冷却提醒: 当前出口 (${CD_KEY}) 10 分钟内已运行 ${CD_CNT} 次体检，高频探测易触发 Google /sorry/ 风控"
+  fi
+fi
+
 # ---------------------------------------------------------------------------
-# Wave 2: Parallel Google 6-Way Ground Truth + Deduplicated Split ASN Lookups
+# Wave 2: Staggered Google 6-Way Ground Truth (Anti-Self-Harm Micro-Batches)
 # ---------------------------------------------------------------------------
-step_bar 2 4 "并发实测 Google 6 路真值与独立出口归属..."
-launch_stack_w2() {
+step_bar 2 4 "错峰实测 Google 6 路真值与独立出口归属..."
+launch_stack_w2a() {
   local ver="$1" sf="-$1"
-  run_job "v${ver}_gem"  9 'https://gemini.google.com/app' "$sf" -L
-  run_job "v${ver}_nlm"  7 'https://notebooklm.google.com/' "$sf" -I
-  run_job "v${ver}_yt"   9 'https://www.youtube.com/premium' "$sf" -L -H 'Accept-Language: en-US,en;q=0.9' -H "Cookie: $SOCS_COOKIE"
-  run_job "v${ver}_play" 9 'https://play.google.com/' "$sf" -L -H 'Accept-Language: en-US,en;q=0.9'
-  run_job "v${ver}_sdom" 7 'https://www.google.com/searchdomaincheck?format=domain' "$sf"
-  run_job "v${ver}_srch" 9 'https://www.google.com/search?q=curl&ie=UTF-8' "$sf" -L -H 'Accept-Language: en-US,en;q=0.9' -H 'Sec-Fetch-Dest: document' -H 'Sec-Fetch-Mode: navigate' -H 'Sec-Fetch-Site: none'
-  run_job "v${ver}_trm"  9 'https://policies.google.com/terms?hl=en' "$sf" -L
+  run_job "v${ver}_gem"  12 'https://gemini.google.com/app' "$sf" -L -H 'Accept-Language: en-US,en;q=0.9'
+  run_job "v${ver}_nlm"  7  'https://notebooklm.google.com/' "$sf" -I
+  run_job "v${ver}_yt"   10 'https://www.youtube.com/premium' "$sf" -L -H 'Accept-Language: en-US,en;q=0.9' -H "Cookie: $SOCS_COOKIE"
 }
-if [ "$V4_OK" -eq 1 ]; then launch_stack_w2 4; fi
-if [ "$V6_OK" -eq 1 ]; then launch_stack_w2 6; fi
+launch_stack_w2b() {
+  local ver="$1" sf="-$1"
+  run_job "v${ver}_play" 10 'https://play.google.com/' "$sf" -L -H 'Accept-Language: en-US,en;q=0.9'
+  run_job "v${ver}_sdom" 7  'https://www.google.com/searchdomaincheck?format=domain' "$sf"
+  run_job "v${ver}_trm"  10 'https://policies.google.com/terms?hl=en' "$sf" -L -H 'Accept-Language: en-US,en;q=0.9'
+  if [ "$OPT_PROBE_SEARCH" -eq 1 ]; then
+    run_job "v${ver}_srch" 9 'https://www.google.com/search?q=weather&hl=en&gbv=1' "$sf" -L -H 'Accept-Language: en-US,en;q=0.9' -H 'Sec-Fetch-Dest: document' -H 'Sec-Fetch-Mode: navigate' -H 'Sec-Fetch-Site: none'
+  fi
+}
+if [ "$V4_OK" -eq 1 ]; then launch_stack_w2a 4; fi
+if [ "$V6_OK" -eq 1 ]; then launch_stack_w2a 6; fi
 
 # Deduplicated ASN lookup for any newly discovered non-WARP exit IP
 ASN_SEEN="|${V4_RAW_IP}|${V6_RAW_IP}|"
@@ -566,6 +591,10 @@ for cip in "$V4_GIP_RAW" "$V6_GIP_RAW" "$CF_IP" "$OAI_IP" "$CLD_IP"; do
   printf 'asn_%s|%s\n' "$ASN_IDX" "$cip" >> "$ASN_LIST_FILE"
   run_job "asn_${ASN_IDX}" 5 "https://ipwho.is/${cip}"
 done
+wait
+sleep 0.25 2>/dev/null || true
+if [ "$V4_OK" -eq 1 ]; then launch_stack_w2b 4; fi
+if [ "$V6_OK" -eq 1 ]; then launch_stack_w2b 6; fi
 wait
 
 for f in "$TMPDIR_GR"/v*_gem.meta; do
@@ -613,17 +642,38 @@ meta_field() {
   printf '%s' "$val"
 }
 
+is_google_sorry() {
+  local code="$1" url="$2" body="$3"
+  if [ "$code" = "429" ]; then return 0; fi
+  if printf '%s' "$url" | grep -qiE 'google\.com/sorry|/sorry/index'; then return 0; fi
+  if printf '%s' "$body" | grep -qiE 'unusual traffic from|our systems have detected|unaddressed abuse|/sorry/index|g-recaptcha|^location:.*google\.com/sorry'; then return 0; fi
+  return 1
+}
+
+is_google_jswall() {
+  printf '%s' "$1" | grep -qiE '/httpservice/retry/enablejs|sg_ss|Turn on JavaScript|enablejs\?sei='
+}
+
 parse_stack_w2() {
   local ver="$1"
-  local gem_body gem_cc nlm_body nlm_loc nlm_st yt_body yt_st yt_gl play_cc sdom_raw sdom sr_body sr_code sr_url scap trm_body trm_cv trm_ent dns_m
-  gem_body=$(job_body "v${ver}_gem")
-  gem_cc=$(printf '%s' "$gem_body" | grep -oE ',2,1,200,"[A-Z]{3}"' | head -n 1 | grep -oE '[A-Z]{3}' || true)
-  if [ -z "$gem_cc" ]; then gem_cc=$(printf '%s' "$gem_body" | grep -oE '"countryCode":"[A-Z]{2}"' | head -n 1 | cut -d'"' -f4 || true); fi
+  local gem_body gem_code gem_url gem_rc gem_cc gem_st nlm_body nlm_loc nlm_code nlm_st nlm_c yt_body yt_st yt_gl play_body play_code play_url play_cc play_st sdom_raw sdom_code sdom_url sdom sr_body sr_code sr_url scap trm_body trm_code trm_url trm_cv trm_ent trm_st dns_m
+  gem_body=$(job_body "v${ver}_gem"); gem_code=$(job_http "v${ver}_gem"); gem_url=$(job_url "v${ver}_gem"); gem_rc=$(job_rc "v${ver}_gem")
+  gem_cc=""; gem_st="err"
+  if is_google_sorry "$gem_code" "$gem_url" "$gem_body"; then
+    gem_st="captcha"
+  else
+    gem_cc=$(printf '%s' "$gem_body" | grep -oE ',2,1,200,"[A-Z]{3}"' | head -n 1 | grep -oE '[A-Z]{3}' || true)
+    if [ -z "$gem_cc" ]; then gem_cc=$(printf '%s' "$gem_body" | grep -oE '"countryCode":"[A-Z]{2}"' | head -n 1 | cut -d'"' -f4 || true); fi
+    if [ -n "$gem_cc" ]; then gem_st="ok"
+    elif [ "$gem_rc" = "28" ]; then gem_st="timeout"; fi
+  fi
 
   nlm_body=$(job_body "v${ver}_nlm")
   nlm_loc=$(printf '%s\n' "$nlm_body" | grep -i '^location:' | head -n 1 | tr -d '\r' || true)
-  local nlm_code; nlm_code=$(job_http "v${ver}_nlm")
-  if printf '%s' "$nlm_loc" | grep -qi 'location=unsupported'; then nlm_st="unavail"
+  nlm_code=$(job_http "v${ver}_nlm"); nlm_c=""
+  if [ -n "$nlm_code" ] && [ "$nlm_code" != "000" ]; then nlm_c="$nlm_code"; fi
+  if is_google_sorry "$nlm_code" "$nlm_loc" "$nlm_body"; then nlm_st="captcha"
+  elif printf '%s' "$nlm_loc" | grep -qi 'location=unsupported'; then nlm_st="unavail"
   elif printf '%s' "$nlm_loc" | grep -qiE 'notebook\.google\.com|accounts\.google\.com' || [ "$nlm_code" = "200" ] || [ "$nlm_code" = "301" ] || [ "$nlm_code" = "302" ]; then nlm_st="ok"
   else nlm_st="err"; fi
 
@@ -638,38 +688,59 @@ parse_stack_w2() {
     else yt_st="err"; fi
   fi
 
-  play_cc=$(job_body "v${ver}_play" | grep -oE '<div class="yVZQTb">[^<(]+' | head -n 1 | sed -e 's/<div class="yVZQTb">//' -e 's/[[:space:]]*$//' || true)
+  play_body=$(job_body "v${ver}_play"); play_code=$(job_http "v${ver}_play"); play_url=$(job_url "v${ver}_play")
+  play_cc=""; play_st=""
+  if is_google_sorry "$play_code" "$play_url" "$play_body"; then
+    play_st="captcha"
+  else
+    play_cc=$(printf '%s' "$play_body" | grep -oE '<div class="yVZQTb">[^<(]+' | head -n 1 | sed -e 's/<div class="yVZQTb">//' -e 's/[[:space:]]*$//' || true)
+    [ -n "$play_cc" ] && play_st="ok"
+  fi
 
-  sdom_raw=$(job_body "v${ver}_sdom")
+  sdom_raw=$(job_body "v${ver}_sdom"); sdom_code=$(job_http "v${ver}_sdom"); sdom_url=$(job_url "v${ver}_sdom")
   if printf '%s' "$sdom_raw" | grep -qi 'hkredirect'; then sdom="hkredirect"
   else
     sdom=$(printf '%s\n' "$sdom_raw" | head -n 1 | tr -d '\r\n ' || true)
     case "$sdom" in .google.*) ;; *) sdom="" ;; esac
   fi
 
-  sr_body=$(job_body "v${ver}_srch"); sr_code=$(job_http "v${ver}_srch"); sr_url=$(job_url "v${ver}_srch")
-  if [ -z "$sr_code" ] || [ "$sr_code" = "000" ]; then scap="err"
-  elif [ "$sr_code" = "429" ] || printf '%s' "$sr_body" | grep -qiE 'unusual traffic from|is blocked|unaddressed abuse|/sorry/'; then scap="captcha"
-  elif printf '%s' "$sr_url" | grep -qiE 'google\.com\.hk|google\.cn'; then scap="hk"
-  else scap="ok"; fi
+  scap="skipped"
+  if [ "$OPT_PROBE_SEARCH" -eq 1 ]; then
+    sr_body=$(job_body "v${ver}_srch"); sr_code=$(job_http "v${ver}_srch"); sr_url=$(job_url "v${ver}_srch")
+    if is_google_sorry "$sr_code" "$sr_url" "$sr_body"; then scap="captcha"
+    elif [ -z "$sr_code" ] || [ "$sr_code" = "000" ]; then scap="err"
+    elif printf '%s' "$sr_url" | grep -qiE 'google\.com\.hk|google\.cn'; then scap="hk"
+    elif is_google_jswall "$sr_body"; then scap="jswall"
+    elif [ "$sr_code" = "200" ] && printf '%s' "$sr_body" | grep -qiE '<title>.*Google|id="search"|id="rso"|class="g"'; then scap="ok"
+    else scap="err"; fi
+  elif is_google_sorry "$sdom_code" "$sdom_url" "$sdom_raw"; then
+    scap="captcha"
+  fi
 
-  trm_body=$(job_body "v${ver}_trm")
-  trm_cv=$(printf '%s' "$trm_body" | grep -oE 'Country version:?</[^>]+>[[:space:]]*[A-Za-z][^<]{1,42}' | head -n 1 | sed -E 's/^[^>]+>[[:space:]]*//; s/[[:space:]]+$//' || true)
-  if [ -z "$trm_cv" ]; then trm_cv=$(printf '%s' "$trm_body" | grep -oE 'Country version:[[:space:]]*[A-Za-z][A-Za-z ,.&'\''-]{1,40}' | head -n 1 | sed -E 's/^Country version:[[:space:]]*//; s/[[:space:]]+$//' || true); fi
-  trm_ent=$(printf '%s' "$trm_body" | grep -oE 'Google Ireland Limited|Google LLC|Google Asia Pacific|Google Commerce Limited' | head -n 1 || true)
+  trm_body=$(job_body "v${ver}_trm"); trm_code=$(job_http "v${ver}_trm"); trm_url=$(job_url "v${ver}_trm")
+  trm_cv=""; trm_ent=""; trm_st=""
+  if is_google_sorry "$trm_code" "$trm_url" "$trm_body"; then
+    trm_st="captcha"
+  else
+    trm_cv=$(printf '%s' "$trm_body" | grep -oE 'Country version:?</[^>]+>[[:space:]]*[A-Za-z][^<]{1,42}' | head -n 1 | sed -E 's/^[^>]+>[[:space:]]*//; s/[[:space:]]+$//' || true)
+    if [ -z "$trm_cv" ]; then trm_cv=$(printf '%s' "$trm_body" | grep -oE 'Country version:[[:space:]]*[A-Za-z][A-Za-z ,.&'\''-]{1,40}' | head -n 1 | sed -E 's/^Country version:[[:space:]]*//; s/[[:space:]]+$//' || true); fi
+    trm_ent=$(printf '%s' "$trm_body" | grep -oE 'Google Ireland Limited|Google LLC|Google Asia Pacific|Google Commerce Limited' | head -n 1 || true)
+    [ -n "$trm_cv" ] && trm_st="ok"
+  fi
 
   dns_m=$(check_dns_unlock "$ver" "$DETECTED_TUN" "$HAS_EXPLICIT_PROXY")
+  local sr_ms; sr_ms=$(job_ms "v${ver}_srch"); if [ -z "$sr_ms" ]; then sr_ms=$(job_ms "v${ver}_sdom"); fi
 
-  eval "V${ver}_GEM=\"\$gem_cc\"; V${ver}_NLM=\"\$nlm_st\"; V${ver}_YT=\"\$yt_st\"; V${ver}_YTG=\"\$yt_gl\""
-  eval "V${ver}_PLAY=\"\$play_cc\"; V${ver}_SDOM=\"\$sdom\"; V${ver}_SCAP=\"\$scap\"; V${ver}_TRM=\"\$trm_cv\"; V${ver}_ENT=\"\$trm_ent\"; V${ver}_DNS=\"\$dns_m\""
-  eval "V${ver}_GEM_MS=\"\$(job_ms v${ver}_gem)\"; V${ver}_NLM_MS=\"\$(job_ms v${ver}_nlm)\"; V${ver}_YT_MS=\"\$(job_ms v${ver}_yt)\"; V${ver}_PLAY_MS=\"\$(job_ms v${ver}_play)\"; V${ver}_SRCH_MS=\"\$(job_ms v${ver}_srch)\""
+  eval "V${ver}_GEM=\"\$gem_cc\"; V${ver}_GEMST=\"\$gem_st\"; V${ver}_NLM=\"\$nlm_st\"; V${ver}_NLMC=\"\$nlm_c\"; V${ver}_YT=\"\$yt_st\"; V${ver}_YTG=\"\$yt_gl\""
+  eval "V${ver}_PLAY=\"\$play_cc\"; V${ver}_PLAYST=\"\$play_st\"; V${ver}_SDOM=\"\$sdom\"; V${ver}_SCAP=\"\$scap\"; V${ver}_TRM=\"\$trm_cv\"; V${ver}_TRMST=\"\$trm_st\"; V${ver}_ENT=\"\$trm_ent\"; V${ver}_DNS=\"\$dns_m\""
+  eval "V${ver}_GEM_MS=\"\$(job_ms v${ver}_gem)\"; V${ver}_NLM_MS=\"\$(job_ms v${ver}_nlm)\"; V${ver}_YT_MS=\"\$(job_ms v${ver}_yt)\"; V${ver}_PLAY_MS=\"\$(job_ms v${ver}_play)\"; V${ver}_SRCH_MS=\"\$sr_ms\""
 }
 
 V4_IP=""; V4_GIP=""; V4_GASN=""; V4_GORG=""; V4_GKIND=""
-V4_GEM=""; V4_NLM=""; V4_YT=""; V4_YTG=""; V4_PLAY=""; V4_SDOM=""; V4_SCAP=""; V4_TRM=""; V4_ENT=""; V4_DNS="skip"
+V4_GEM=""; V4_GEMST=""; V4_NLM=""; V4_NLMC=""; V4_YT=""; V4_YTG=""; V4_PLAY=""; V4_PLAYST=""; V4_SDOM=""; V4_SCAP=""; V4_TRM=""; V4_TRMST=""; V4_ENT=""; V4_DNS="skip"
 V4_GEM_MS=""; V4_NLM_MS=""; V4_YT_MS=""; V4_PLAY_MS=""; V4_SRCH_MS=""
 V6_IP=""; V6_GIP=""; V6_GASN=""; V6_GORG=""; V6_GKIND=""
-V6_GEM=""; V6_NLM=""; V6_YT=""; V6_YTG=""; V6_PLAY=""; V6_SDOM=""; V6_SCAP=""; V6_TRM=""; V6_ENT=""; V6_DNS="skip"
+V6_GEM=""; V6_GEMST=""; V6_NLM=""; V6_NLMC=""; V6_YT=""; V6_YTG=""; V6_PLAY=""; V6_PLAYST=""; V6_SDOM=""; V6_SCAP=""; V6_TRM=""; V6_TRMST=""; V6_ENT=""; V6_DNS="skip"
 V6_GEM_MS=""; V6_NLM_MS=""; V6_YT_MS=""; V6_PLAY_MS=""; V6_SRCH_MS=""
 
 if [ "$V4_OK" -eq 1 ]; then
@@ -832,6 +903,13 @@ V_TAG="CLEAN"; V_COL="$C_GRN"; V_TONE="ok"
 V_TEXT="Google 全家桶全绿可用"
 if [ "$EFF_KIND" = "hosting" ]; then V_TEXT="云机房出口全绿可用 · 实测无送中无验证码 (反焦虑认证)"; fi
 
+ANY_GEM_CAPTCHA=0
+ANY_GEM_TIMEOUT=0
+ANY_OTHER_CAPTCHA=0
+if [ "$V4_GEMST" = "captcha" ] || [ "$V6_GEMST" = "captcha" ]; then ANY_GEM_CAPTCHA=1; fi
+if [ "$V4_GEMST" = "timeout" ] || [ "$V6_GEMST" = "timeout" ]; then ANY_GEM_TIMEOUT=1; fi
+if [ "$V4_SCAP" = "captcha" ] || [ "$V6_SCAP" = "captcha" ] || [ "$V4_NLM" = "captcha" ] || [ "$V6_NLM" = "captcha" ] || [ "$V4_PLAYST" = "captcha" ] || [ "$V6_PLAYST" = "captcha" ] || [ "$V4_TRMST" = "captcha" ] || [ "$V6_TRMST" = "captcha" ]; then ANY_OTHER_CAPTCHA=1; fi
+
 if [ "$DUAL_CONFLICT" -eq 1 ]; then
   V_TAG="STACK_SPLIT"; V_COL="$C_YLW"; V_TONE="diff"
   V_TEXT="双栈不对称: IPv4(${V4_GEM:-?}) vs IPv6(${V6_GEM:-?})，建议关闭冲突栈"
@@ -840,9 +918,15 @@ elif [ "$D4" -eq 1 ] || [ "$D6" -eq 1 ]; then
   if [ -n "$P_CC" ] && ! is_cn_or_restricted "$P_CC"; then
     V_TEXT="实锤 Google 私有库送中 (公开库 ${P_CC} / Apple ${APPLE_CC:-?}，但 Google 判受限)"
   else V_TEXT="Google 生态判定为受限地区 / 送中"; fi
-elif [ "$V4_SCAP" = "captcha" ] || [ "$V6_SCAP" = "captcha" ]; then
+elif [ "$ANY_GEM_CAPTCHA" -eq 1 ]; then
+  V_TAG="PARTIAL"; V_COL="$C_RED"; V_TONE="leak"
+  V_TEXT="Gemini 触发 /sorry/ 异常流量拦截 (429)，请冷却 30 分钟或浏览器过验"
+elif [ "$ANY_OTHER_CAPTCHA" -eq 1 ]; then
   V_TAG="PARTIAL"; V_COL="$C_YLW"; V_TONE="diff"
-  V_TEXT="AI 核心可用，但 Google Search 触发 /sorry/ 人机验证"
+  V_TEXT="检测到 Google /sorry/ 异常流量人机验证，建议降低探测频率或换出口"
+elif [ "$ANY_GEM_TIMEOUT" -eq 1 ]; then
+  V_TAG="PARTIAL"; V_COL="$C_YLW"; V_TONE="diff"
+  V_TEXT="Gemini 探测超时 (12s)，可能被临时限速或代理链路抖动"
 elif [ "$SPLIT_HIT" -eq 1 ] || [ "$OV_SLOTS" -ge 2 ]; then
   V_TAG="SPLIT_ROUTE"; V_COL="$C_CYN"; V_TONE="ok"
   if [ -n "$P_GORG" ]; then V_TEXT="跨组分流生效 · 检出 ${OV_SLOTS} 路海外出口 (Google 经 ${P_GORG} 可用)"
@@ -934,17 +1018,19 @@ build_bucket_json() {
 build_stack_json() {
   local ver="$1"
   eval "local ip=\$V${ver}_IP gip=\$V${ver}_GIP asn=\$V${ver}_ASN org=\$V${ver}_ORG cc=\$V${ver}_CC city=\$V${ver}_CITY kind=\$V${ver}_KIND"
-  eval "local gasn=\$V${ver}_GASN gorg=\$V${ver}_GORG gkind=\$V${ver}_GKIND gem=\$V${ver}_GEM nlm=\$V${ver}_NLM yt=\$V${ver}_YT ytg=\$V${ver}_YTG"
-  eval "local cdn=\$V${ver}_CDN cdnu=\$V${ver}_CDNU play=\$V${ver}_PLAY sdom=\$V${ver}_SDOM scap=\$V${ver}_SCAP trm=\$V${ver}_TRM ent=\$V${ver}_ENT dns=\$V${ver}_DNS"
+  eval "local gasn=\$V${ver}_GASN gorg=\$V${ver}_GORG gkind=\$V${ver}_GKIND gem=\$V${ver}_GEM gemst=\$V${ver}_GEMST nlm=\$V${ver}_NLM nlmc=\$V${ver}_NLMC yt=\$V${ver}_YT ytg=\$V${ver}_YTG"
+  eval "local cdn=\$V${ver}_CDN cdnu=\$V${ver}_CDNU play=\$V${ver}_PLAY playst=\$V${ver}_PLAYST sdom=\$V${ver}_SDOM scap=\$V${ver}_SCAP trm=\$V${ver}_TRM trmst=\$V${ver}_TRMST ent=\$V${ver}_ENT dns=\$V${ver}_DNS"
   eval "local m_gem=\$V${ver}_GEM_MS m_nlm=\$V${ver}_NLM_MS m_yt=\$V${ver}_YT_MS m_cdn=\$V${ver}_CDN_MS m_play=\$V${ver}_PLAY_MS m_srch=\$V${ver}_SRCH_MS"
   local out="{" sep=""
   add_s() { [ -n "$2" ] && { out="${out}${sep}\"$1\":\"$(json_esc "$2")\""; sep=","; }; }
   add_n() { [ -n "$2" ] && { out="${out}${sep}\"$1\":$2"; sep=","; }; }
   add_s ip "$ip"; add_s gip "$gip"; add_n asn "$asn"; add_s org "$org"; add_s cc "$cc"; add_s city "$city"; add_s kind "$kind"
   add_n gasn "$gasn"; add_s gorg "$gorg"; add_s gkind "$gkind"
-  add_s gem "$gem"; add_s nlm "$nlm"; add_s yt "$yt"; add_s ytg "$ytg"; add_s cdn "$cdn"
+  add_s gem "$gem"; add_s gemst "$gemst"; add_s nlm "$nlm"; add_n nlmc "$nlmc"; add_s yt "$yt"; add_s ytg "$ytg"; add_s cdn "$cdn"
   if [ "$cdnu" -eq 1 ]; then out="${out}${sep}\"cdnu\":true"; sep=","; fi
-  add_s play "$play"; add_s sdom "$sdom"; add_s scap "$scap"; add_s trm "$trm"; add_s ent "$ent"; add_s dns "$dns"
+  add_s play "$play"; [ "$playst" = "captcha" ] && add_s playst "captcha"
+  add_s sdom "$sdom"; add_s scap "$scap"; add_s trm "$trm"; [ "$trmst" = "captcha" ] && add_s trmst "captcha"
+  add_s ent "$ent"; add_s dns "$dns"
   local rtt="" rsep=""
   [ -n "$m_gem" ]  && { rtt="${rtt}${rsep}\"gem\":${m_gem}"; rsep=","; }
   [ -n "$m_nlm" ]  && { rtt="${rtt}${rsep}\"nlm\":${m_nlm}"; rsep=","; }
@@ -1086,39 +1172,75 @@ run_local_controller_audit() {
   local cver; cver=$(json_str "$body" "version")
   box_line "已自动识别: ${lbl} · ${ep}${cver:+ · ${cver}}" "$C_DIM"
 
-  # Launch 15 lightweight probes concurrently so Mihomo/sing-box records active connections
-  local pids=""
-  for u in \
-    "https://gemini.google.com/app" \
-    "https://aistudio.google.com/" \
-    "https://notebooklm.google.com/" \
-    "https://labs.google/" \
-    "https://generativelanguage.googleapis.com/" \
-    "https://alkalimakersuite-pa.clients6.google.com/" \
-    "https://oauth2.googleapis.com/" \
-    "https://accounts.google.com/" \
-    "https://www.google.com/search?q=curl&ie=UTF-8" \
-    "https://play.google.com/" \
-    "https://www.youtube.com/premium" \
-    "https://redirector.googlevideo.com/report_mapping" \
-    "https://chatgpt.com/cdn-cgi/trace" \
-    "https://claude.ai/cdn-cgi/trace" \
-    "https://v4.ident.me/json"; do
-    if [ -n "$EFFECTIVE_PROXY" ]; then
-      curl -sS --max-time 4 --limit-rate 50 -A "$UA" -x "$EFFECTIVE_PROXY" -o /dev/null "$u" >/dev/null 2>&1 &
-    else
-      curl -sS --max-time 4 --limit-rate 50 -A "$UA" -o /dev/null "$u" >/dev/null 2>&1 &
-    fi
-    pids="$pids $!"
-  done
-  sleep 1
-  local c_raw c_code c_json
-  c_raw=$(ctrl_get "$ep" "/connections" "$OPT_SECRET" 3)
-  for pid in $pids; do kill "$pid" >/dev/null 2>&1 || true; done
-  wait >/dev/null 2>&1 || true
-
+  # Step A: Passive zero-packet harvest from currently active connections first
+  local c_all_json="" c_raw c_code c_json
+  c_raw=$(ctrl_get "$ep" "/connections" "$OPT_SECRET" 2)
   c_code=$(printf '%s\n' "$c_raw" | tail -n 1 | sed -n 's/.*__HTTP__\([0-9]*\).*/\1/p')
-  c_json=$(printf '%s\n' "$c_raw" | sed '$d')
+  if [ "$c_code" = "200" ]; then
+    c_all_json=$(printf '%s\n' "$c_raw" | sed '$d')
+  fi
+
+  # Step B: Only for missing hosts, send gentle clean HTTP HEAD in micro-batches of 4 (ZERO --limit-rate 50, ZERO kill RST!)
+  local missing_doms=""
+  for dom in \
+    gemini.google.com aistudio.google.com notebooklm.google.com labs.google generativelanguage.googleapis.com \
+    alkalimakersuite-pa.clients6.google.com oauth2.googleapis.com accounts.google.com \
+    www.google.com play.google.com policies.google.com www.youtube.com redirector.googlevideo.com \
+    chatgpt.com claude.ai v4.ident.me; do
+    if ! printf '%s' "$c_all_json" | grep -q "\"${dom}\""; then
+      missing_doms="${missing_doms} ${dom}"
+    fi
+  done
+
+  local batch_cnt=0 batch_doms=""
+  for dom in $missing_doms; do
+    batch_doms="${batch_doms} ${dom}"
+    batch_cnt=$((batch_cnt + 1))
+    if [ "$batch_cnt" -ge 4 ]; then
+      for bd in $batch_doms; do
+        local bp="/"
+        case "$bd" in *.google.com|*.googleapis.com|*.googlevideo.com) bp="/generate_204" ;; esac
+        if [ -n "$EFFECTIVE_PROXY" ]; then
+          curl -sS --max-time 4 -I --compressed -A "$UA" -x "$EFFECTIVE_PROXY" -o /dev/null "https://${bd}${bp}" >/dev/null 2>&1 &
+        else
+          curl -sS --max-time 4 -I --compressed -A "$UA" -o /dev/null "https://${bd}${bp}" >/dev/null 2>&1 &
+        fi
+      done
+      sleep 0.35 2>/dev/null || sleep 1
+      local cr_b; cr_b=$(ctrl_get "$ep" "/connections" "$OPT_SECRET" 2)
+      local cc_b; cc_b=$(printf '%s\n' "$cr_b" | tail -n 1 | sed -n 's/.*__HTTP__\([0-9]*\).*/\1/p')
+      if [ "$cc_b" = "200" ]; then
+        c_code="200"
+        c_all_json="${c_all_json}
+$(printf '%s\n' "$cr_b" | sed '$d')"
+      fi
+      wait >/dev/null 2>&1 || true
+      sleep 0.15 2>/dev/null || true
+      batch_doms=""; batch_cnt=0
+    fi
+  done
+  if [ -n "$batch_doms" ]; then
+    for bd in $batch_doms; do
+      local bp="/"
+      case "$bd" in *.google.com|*.googleapis.com|*.googlevideo.com) bp="/generate_204" ;; esac
+      if [ -n "$EFFECTIVE_PROXY" ]; then
+        curl -sS --max-time 4 -I --compressed -A "$UA" -x "$EFFECTIVE_PROXY" -o /dev/null "https://${bd}${bp}" >/dev/null 2>&1 &
+      else
+        curl -sS --max-time 4 -I --compressed -A "$UA" -o /dev/null "https://${bd}${bp}" >/dev/null 2>&1 &
+      fi
+    done
+    sleep 0.35 2>/dev/null || sleep 1
+    local cr_b; cr_b=$(ctrl_get "$ep" "/connections" "$OPT_SECRET" 2)
+    local cc_b; cc_b=$(printf '%s\n' "$cr_b" | tail -n 1 | sed -n 's/.*__HTTP__\([0-9]*\).*/\1/p')
+    if [ "$cc_b" = "200" ]; then
+      c_code="200"
+      c_all_json="${c_all_json}
+$(printf '%s\n' "$cr_b" | sed '$d')"
+    fi
+    wait >/dev/null 2>&1 || true
+  fi
+
+  c_json="$c_all_json"
   if [ "$c_code" != "200" ]; then
     box_line "[INFO] 读取 /connections 失败 (HTTP=${c_code})" "$C_YLW"
     return
@@ -1219,31 +1341,31 @@ UTC_TIME=$(date -u +"%Y-%m-%d %H:%M UTC" 2>/dev/null || echo "")
 
 cell_text() {
   local kind="$1" v="$2"
-  eval "local gem=\$V${v}_GEM nlm=\$V${v}_NLM yt=\$V${v}_YT ytg=\$V${v}_YTG cdn=\$V${v}_CDN cdnu=\$V${v}_CDNU ip=\$V${v}_IP gip=\$V${v}_GIP play=\$V${v}_PLAY sdom=\$V${v}_SDOM scap=\$V${v}_SCAP trm=\$V${v}_TRM ent=\$V${v}_ENT"
+  eval "local gem=\$V${v}_GEM gemst=\$V${v}_GEMST nlm=\$V${v}_NLM nlmc=\$V${v}_NLMC yt=\$V${v}_YT ytg=\$V${v}_YTG cdn=\$V${v}_CDN cdnu=\$V${v}_CDNU ip=\$V${v}_IP gip=\$V${v}_GIP play=\$V${v}_PLAY playst=\$V${v}_PLAYST sdom=\$V${v}_SDOM scap=\$V${v}_SCAP trm=\$V${v}_TRM trmst=\$V${v}_TRMST ent=\$V${v}_ENT"
   local okp="✓ " wnp="! " nop="✕ "
   if [ "$OPT_ASCII" -eq 1 ]; then okp="[OK] "; wnp="[!] "; nop="[X] "; fi
   case "$kind" in
-    gem)    [ -z "$gem" ] && echo "N/A" || { is_cn_or_restricted "$gem" && echo "${nop}BLOCKED [$gem]" || echo "${okp}OK [$gem]"; } ;;
-    nlm)    case "$nlm" in ok) echo "${okp}OK (301)" ;; unavail) echo "${nop}BLOCKED (302)" ;; *) echo "N/A" ;; esac ;;
+    gem)    if [ "$gemst" = "captcha" ]; then echo "${nop}CAPTCHA (/sorry)"; elif [ "$gemst" = "timeout" ]; then echo "${wnp}TIMEOUT (12s)"; elif [ -z "$gem" ]; then echo "N/A"; elif is_cn_or_restricted "$gem"; then echo "${nop}BLOCKED [$gem]"; else echo "${okp}OK [$gem]"; fi ;;
+    nlm)    case "$nlm" in captcha) echo "${nop}CAPTCHA (/sorry)" ;; ok) echo "${okp}OK (${nlmc:-301})" ;; unavail) echo "${nop}BLOCKED (302)" ;; *) echo "N/A" ;; esac ;;
     yt)     case "$yt" in ok) echo "${okp}OK [${ytg:-OK}]" ;; cn) echo "${nop}CN_DRIFT" ;; noprem) echo "${nop}NO_PREM (GL=${ytg:-?})" ;; *) echo "N/A" ;; esac ;;
     cdn)    if [ -z "$cdn" ]; then echo "N/A"; else local t="$cdn"; [ "$cdnu" -eq 1 ] && t="${t} [u]"; echo "${okp}${t}"; fi ;;
-    play)   [ -z "$play" ] && echo "N/A" || { is_cn_or_restricted "$play" && echo "${nop}$play [CN]" || echo "${okp}$play"; } ;;
-    search) if [ "$scap" = "captcha" ]; then echo "${wnp}CAPTCHA (/sorry)"; elif [ "$sdom" = "hkredirect" ] || [ "$scap" = "hk" ]; then echo "${nop}HK_REDIRECT (.hk)"; elif [ -n "$sdom" ] || [ "$scap" = "ok" ]; then echo "${okp}${sdom:-OK} (Clean)"; else echo "N/A"; fi ;;
-    terms)  if [ -z "$trm" ]; then echo "N/A"; elif is_cn_or_restricted "$trm"; then echo "${nop}$trm [CN]"; elif [ "$ent" = "Google Ireland Limited" ]; then echo "${wnp}$trm (EEA)"; else echo "${okp}$trm"; fi ;;
+    play)   if [ "$playst" = "captcha" ]; then echo "${nop}CAPTCHA (/sorry)"; elif [ -z "$play" ]; then echo "N/A"; elif is_cn_or_restricted "$play"; then echo "${nop}$play [CN]"; else echo "${okp}$play"; fi ;;
+    search) if [ "$scap" = "captcha" ]; then echo "${wnp}CAPTCHA (/sorry)"; elif [ "$sdom" = "hkredirect" ] || [ "$scap" = "hk" ]; then echo "${nop}HK_REDIRECT (.hk)"; elif [ "$scap" = "jswall" ]; then echo "${wnp}${sdom:-SERP} (JS墙)"; elif [ "$scap" = "ok" ]; then echo "${okp}${sdom:-OK} (Clean)"; elif [ -n "$sdom" ] && { [ -z "$scap" ] || [ "$scap" = "skipped" ]; }; then echo "${okp}${sdom} (域正常)"; elif [ -n "$sdom" ] && [ "$scap" = "err" ]; then echo "${wnp}${sdom} (SERP异常)"; else echo "N/A"; fi ;;
+    terms)  if [ "$trmst" = "captcha" ]; then echo "${nop}CAPTCHA (/sorry)"; elif [ -z "$trm" ]; then echo "N/A"; elif is_cn_or_restricted "$trm"; then echo "${nop}$trm [CN]"; elif [ "$ent" = "Google Ireland Limited" ]; then echo "${wnp}$trm (EEA)"; else echo "${okp}$trm"; fi ;;
   esac
 }
 
 cell_tone() {
   local kind="$1" v="$2"
-  eval "local gem=\$V${v}_GEM nlm=\$V${v}_NLM yt=\$V${v}_YT ip=\$V${v}_IP gip=\$V${v}_GIP cdn=\$V${v}_CDN play=\$V${v}_PLAY sdom=\$V${v}_SDOM scap=\$V${v}_SCAP trm=\$V${v}_TRM ent=\$V${v}_ENT"
+  eval "local gem=\$V${v}_GEM gemst=\$V${v}_GEMST nlm=\$V${v}_NLM yt=\$V${v}_YT ip=\$V${v}_IP gip=\$V${v}_GIP cdn=\$V${v}_CDN play=\$V${v}_PLAY playst=\$V${v}_PLAYST sdom=\$V${v}_SDOM scap=\$V${v}_SCAP trm=\$V${v}_TRM trmst=\$V${v}_TRMST ent=\$V${v}_ENT"
   case "$kind" in
-    gem)    [ -z "$gem" ] && echo "muted" || { is_cn_or_restricted "$gem" && echo "leak" || echo "ok"; } ;;
-    nlm)    case "$nlm" in ok) echo "ok" ;; unavail) echo "leak" ;; *) echo "muted" ;; esac ;;
+    gem)    if [ "$gemst" = "captcha" ]; then echo "leak"; elif [ "$gemst" = "timeout" ]; then echo "diff"; elif [ -z "$gem" ]; then echo "muted"; elif is_cn_or_restricted "$gem"; then echo "leak"; else echo "ok"; fi ;;
+    nlm)    case "$nlm" in captcha|unavail) echo "leak" ;; ok) echo "ok" ;; *) echo "muted" ;; esac ;;
     yt)     case "$yt" in ok) echo "ok" ;; cn|noprem) echo "leak" ;; *) echo "muted" ;; esac ;;
     cdn)    [ -z "$cdn" ] && echo "muted" || { [ -n "$ip" ] && [ -n "$gip" ] && [ "$ip" != "$gip" ] && echo "diff" || echo "ok"; } ;;
-    play)   [ -z "$play" ] && echo "muted" || { is_cn_or_restricted "$play" && echo "leak" || echo "ok"; } ;;
-    search) if [ "$scap" = "captcha" ]; then echo "diff"; elif [ "$sdom" = "hkredirect" ] || [ "$scap" = "hk" ]; then echo "leak"; elif [ -n "$sdom" ] || [ "$scap" = "ok" ]; then echo "ok"; else echo "muted"; fi ;;
-    terms)  if [ -z "$trm" ]; then echo "muted"; elif is_cn_or_restricted "$trm"; then echo "leak"; elif [ "$ent" = "Google Ireland Limited" ]; then echo "diff"; else echo "ok"; fi ;;
+    play)   if [ "$playst" = "captcha" ]; then echo "leak"; elif [ -z "$play" ]; then echo "muted"; elif is_cn_or_restricted "$play"; then echo "leak"; else echo "ok"; fi ;;
+    search) if [ "$scap" = "captcha" ] || [ "$scap" = "jswall" ]; then echo "diff"; elif [ "$sdom" = "hkredirect" ] || [ "$scap" = "hk" ]; then echo "leak"; elif [ "$scap" = "ok" ]; then echo "ok"; elif [ -n "$sdom" ] && { [ -z "$scap" ] || [ "$scap" = "skipped" ]; }; then echo "ok"; elif [ -n "$sdom" ] && [ "$scap" = "err" ]; then echo "diff"; else echo "muted"; fi ;;
+    terms)  if [ "$trmst" = "captcha" ]; then echo "leak"; elif [ -z "$trm" ]; then echo "muted"; elif is_cn_or_restricted "$trm"; then echo "leak"; elif [ "$ent" = "Google Ireland Limited" ]; then echo "diff"; else echo "ok"; fi ;;
   esac
 }
 
@@ -1256,6 +1378,7 @@ box_line "G-ROUTE v3 // Google 生态送中与分流体检卡  [${NET_LABEL}] ${
 box_rule mid
 box_line "结论  [${V_TAG}] ${V_TEXT}" "$V_COL"
 box_line "三方对照: 公开库=${P_CC:-?}  |  Apple=${APPLE_CC:-?}  |  Google 实测=${P_GEM:-?}  |  DNS=${P_DNS:-skip}" "$C_DIM"
+[ -n "$COOLDOWN_WARN" ] && box_line "$COOLDOWN_WARN" "$C_YLW"
 
 # [01] 6-Bucket Split-Route Topology Radar
 box_rule mid

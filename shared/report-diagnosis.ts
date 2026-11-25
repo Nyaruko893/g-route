@@ -390,9 +390,31 @@ function evaluateStackHealth(stack: StackProbeV1 | undefined, stackLabel: string
     driftReasons.push(`${stackLabel} Google Search 静默跳转 .com.hk`);
   }
 
-  const hasCaptcha = stack.scap === 'captcha';
-  if (hasCaptcha) {
+  const hasGeminiCaptcha = stack.gemst === 'captcha';
+  const hasGeminiTimeout = stack.gemst === 'timeout';
+  const hasOtherCaptcha =
+    stack.nlm === 'captcha' || stack.playst === 'captcha' || stack.trmst === 'captcha';
+  const hasCaptcha = stack.scap === 'captcha' || hasGeminiCaptcha || hasOtherCaptcha;
+  if (hasGeminiCaptcha) {
+    partialReasons.push(`${stackLabel} Gemini 触发 /sorry/ 异常流量验证 (429)`);
+  }
+  if (hasGeminiTimeout) {
+    partialReasons.push(`${stackLabel} Gemini 探测超时（可能被限速或链路抖动）`);
+  }
+  if (stack.nlm === 'captcha') {
+    partialReasons.push(`${stackLabel} NotebookLM 触发 /sorry/ 验证`);
+  }
+  if (stack.playst === 'captcha') {
+    partialReasons.push(`${stackLabel} Google Play 触发 /sorry/ 验证`);
+  }
+  if (stack.trmst === 'captcha') {
+    partialReasons.push(`${stackLabel} Google Terms 触发 /sorry/ 验证`);
+  }
+  if (stack.scap === 'captcha') {
     partialReasons.push(`${stackLabel} Google Search 触发 /sorry/ 异常流量验证`);
+  }
+  if (stack.scap === 'jswall') {
+    partialReasons.push(`${stackLabel} Google Search 无 JS 客户端命中 enablejs 验证墙（非 /sorry）`);
   }
 
   const coreVotes = [playCc, trmCc, sdomCc].filter((v): v is string => v !== null);
@@ -417,6 +439,7 @@ function evaluateStackHealth(stack: StackProbeV1 | undefined, stackLabel: string
   const hasDrift = driftHits >= 2 || gemCc === 'CN' || gemCc === 'HK' || stack.nlm === 'unavail';
   const hasPartialIssue =
     hasCaptcha ||
+    hasGeminiTimeout ||
     (driftHits === 1 && !hasDrift) ||
     hasAiVsGoogleSplit;
 
@@ -454,6 +477,12 @@ function resolveCellExit(
 function buildGeminiCell(s: StackProbeV1): ServiceCell {
   const ms = s.rtt?.gem;
   const exitSlot = resolveCellExit(s, 'gem');
+  if (s.gemst === 'captcha') {
+    return { tone: 'leak', badge: '拦截 (/sorry)', detail: '触发异常流量验证 (429)', ms, exitSlot };
+  }
+  if (s.gemst === 'timeout') {
+    return { tone: 'diff', badge: '超时 (Timeout)', detail: '未在时限内响应（疑被限速/抖动）', ms, exitSlot };
+  }
   if (!s.gem || s.gem === '?') {
     return { tone: 'muted', badge: 'N/A', detail: '未取到 Boq 国码', ms, exitSlot };
   }
@@ -467,8 +496,12 @@ function buildGeminiCell(s: StackProbeV1): ServiceCell {
 function buildNotebookCell(s: StackProbeV1): ServiceCell {
   const ms = s.rtt?.nlm;
   const exitSlot = resolveCellExit(s, 'nlm');
+  if (s.nlm === 'captcha') {
+    return { tone: 'leak', badge: '拦截 (/sorry)', detail: '重定向至 /sorry/ 验证', ms, exitSlot };
+  }
   if (s.nlm === 'ok') {
-    return { tone: 'ok', badge: '支持 (301)', detail: 'notebook.google.com', ms, exitSlot };
+    const codeTag = s.nlmc ? ` (${s.nlmc})` : ' (301)';
+    return { tone: 'ok', badge: `支持${codeTag}`, detail: 'notebook.google.com', ms, exitSlot };
   }
   if (s.nlm === 'unavail') {
     return { tone: 'leak', badge: '封锁 (302)', detail: '?location=unsupported', ms, exitSlot };
@@ -525,6 +558,9 @@ function buildGgcCell(s: StackProbeV1): ServiceCell {
 function buildPlayCell(s: StackProbeV1): ServiceCell {
   const ms = s.rtt?.play;
   const exitSlot = resolveCellExit(s, 'play');
+  if (s.playst === 'captcha') {
+    return { tone: 'leak', badge: '拦截 (/sorry)', detail: '商店页触发 429 / /sorry/', ms, exitSlot };
+  }
   if (!s.play || s.play === '?') {
     return { tone: 'muted', badge: 'N/A', detail: '未取到商店地区', ms, exitSlot };
   }
@@ -557,11 +593,38 @@ function buildSearchCell(s: StackProbeV1): ServiceCell {
       exitSlot,
     };
   }
-  if (s.sdom || s.scap === 'ok') {
+  if (s.scap === 'jswall') {
+    return {
+      tone: 'diff',
+      badge: s.sdom ? `${s.sdom} (JS墙)` : 'JS验证墙',
+      detail: '无 JS 客户端命中 enablejs（非 /sorry）',
+      ms,
+      exitSlot,
+    };
+  }
+  if (s.scap === 'ok') {
     return {
       tone: 'ok',
       badge: s.sdom ?? '无验证码',
-      detail: '直出 200 · 无 /sorry 拦截',
+      detail: 'SERP 实测直出 · 无 /sorry 拦截',
+      ms,
+      exitSlot,
+    };
+  }
+  if (s.sdom && (!s.scap || s.scap === 'skipped')) {
+    return {
+      tone: 'ok',
+      badge: `${s.sdom} (域正常)`,
+      detail: '默认防自伤跳过 SERP 爬取（加 --probe-search 主动测）',
+      ms,
+      exitSlot,
+    };
+  }
+  if (s.sdom && s.scap === 'err') {
+    return {
+      tone: 'diff',
+      badge: `${s.sdom} (SERP异常)`,
+      detail: '搜索域正常，但主动 SERP 探测未响应',
       ms,
       exitSlot,
     };
@@ -571,6 +634,9 @@ function buildSearchCell(s: StackProbeV1): ServiceCell {
 
 function buildTermsCell(s: StackProbeV1): ServiceCell {
   const exitSlot = resolveCellExit(s, 'trm');
+  if (s.trmst === 'captcha') {
+    return { tone: 'leak', badge: '拦截 (/sorry)', detail: '条款页触发 429 / /sorry/', exitSlot };
+  }
   if (!s.trm || s.trm === '?') {
     return { tone: 'muted', badge: 'N/A', detail: s.ent ?? '未提取到条款国', exitSlot };
   }
@@ -914,7 +980,15 @@ export function diagnoseCliReport(report: CliReportV1): ReportDiagnosis {
   } else if (h4.hasCaptcha || h6.hasCaptcha || h4.hasPartialIssue || h6.hasPartialIssue) {
     tier = 'partial';
     tierCode = 'PARTIAL';
-    headline = h4.hasCaptcha || h6.hasCaptcha ? 'AI 可用，但 Google Search 触发人机验证' : '检测到局部异常或灰度受限';
+    const gemBlocked = v4?.gemst === 'captcha' || v6?.gemst === 'captcha';
+    const gemTimedOut = v4?.gemst === 'timeout' || v6?.gemst === 'timeout';
+    headline = gemBlocked
+      ? 'Gemini 触发 /sorry/ 异常流量拦截（需冷却或浏览器过验）'
+      : h4.hasCaptcha || h6.hasCaptcha
+        ? '检测到 /sorry/ 人机验证拦截（建议冷却或切换出口）'
+        : gemTimedOut
+          ? 'Gemini 探测超时（可能被限速或链路抖动）'
+          : '检测到局部异常或灰度受限';
     summary = [...h4.partialReasons, ...h6.partialReasons, ...h4.driftReasons, ...h6.driftReasons].join('；') + '。';
   } else if (hasSplitRoute) {
     tier = 'split';

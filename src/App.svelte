@@ -13,9 +13,7 @@
   import DiffView from './components/DiffView.svelte';
   import HealthCard from './components/HealthCard.svelte';
   import QuickCheckBar from './components/QuickCheckBar.svelte';
-  import RemedyDrawer from './components/RemedyDrawer.svelte';
   import {
-    collectDeviceEnvironment,
     detectDomesticDirect,
     detectDualStack,
     evaluateQuickCheck,
@@ -32,7 +30,6 @@
     type StoredReportEntry,
   } from './lib/session-store';
 
-  const device = collectDeviceEnvironment();
   const origin = typeof window !== 'undefined' ? window.location.origin : 'https://g-route.workers.dev';
 
   let theme = $state<'auto' | 'light' | 'dark'>('auto');
@@ -77,21 +74,6 @@
     })).filter((e) => !seen.has(e.id));
     return [...history, ...extras];
   });
-
-  const drawerSuggested = $derived(
-    activeDiag
-      ? activeDiag.suggestedPatch
-      : {
-          includeAiBackend: true,
-          includeAntiGoogleCn: quickSummary.isUdpDomesticLeak,
-          includeGoogleCore: false,
-          includeGmsFcm: device.isAndroid,
-        },
-  );
-
-  const highlightRemedy = $derived(
-    Boolean(activeDiag?.suggestGmsDrawer || quickSummary.isUdpDomesticLeak || quickSummary.dualStackMismatch),
-  );
 
   function cycleTheme(): void {
     const next = theme === 'auto' ? 'dark' : theme === 'dark' ? 'light' : 'auto';
@@ -194,8 +176,12 @@
 
   onMount(() => {
     history = loadSessionReports();
-    void loadFromCurrentHash();
-    void runQuickCheck();
+    void (async () => {
+      await loadFromCurrentHash();
+      if (!activeId) {
+        void runQuickCheck();
+      }
+    })();
 
     const onHashChange = () => {
       void loadFromCurrentHash();
@@ -208,13 +194,13 @@
 <div class="shell">
   <header class="masthead">
     <div class="brand-col">
-      <div class="brand-kicker mono">G-ROUTE // GOOGLE ECOSYSTEM DIAGNOSTIC INSTRUMENT</div>
-      <h1 class="brand-title">Google 生态送中与分流体检仪</h1>
+      <div class="brand-kicker mono">G-ROUTE // NETWORK EGRESS & GEO-ATTRIBUTION DIAGNOSTICS</div>
+      <h1 class="brand-title">Google 连通性与路由归属诊断</h1>
     </div>
 
     <div class="action-col">
       <button type="button" class="btn btn-subtle" onclick={cycleTheme}>
-        主题: {theme === 'auto' ? '自动' : theme === 'dark' ? '深炭' : '纸白'}
+        主题: {theme === 'auto' ? '自动' : theme === 'dark' ? '深色' : '浅色'}
       </button>
     </div>
   </header>
@@ -248,14 +234,14 @@
             class={`btn btn-xs ${showQuickImport ? 'btn-active' : 'btn-subtle'}`}
             onclick={() => (showQuickImport = !showQuickImport)}
           >
-            [+ 导入新报告]
+            [+ 导入报告]
           </button>
           <button
             type="button"
             class={`btn btn-xs ${diffMode ? 'btn-active' : 'btn-subtle'}`}
             onclick={() => (diffMode = !diffMode)}
           >
-            {diffMode ? '[返回单卡]' : '[双卡 Diff]'}
+            {diffMode ? '[返回报告]' : '[报告对比]'}
           </button>
         </div>
       </div>
@@ -265,7 +251,7 @@
           <input
             type="text"
             class="qi-input mono"
-            placeholder="粘贴另一台 VPS / 修改规则后的 #r= 链接、G1 报告码或 JSON 加入会话对比"
+            placeholder="粘贴另一份 #r= 链接、G1 报告码或 JSON 加入对比"
             bind:value={quickImportText}
             onkeydown={(e) => {
               if (e.key === 'Enter') void handleQuickImportSubmit();
@@ -314,12 +300,10 @@
         onImportReport={handleImportReport}
       />
     {/if}
-
-    <RemedyDrawer {device} suggested={drawerSuggested} {highlightRemedy} />
   </main>
 
   <footer class="foot mono">
-    <span>G-ROUTE // 永久 $0 · 零落库零日志 · #r= 数据永不离开本地浏览器 · 不打欺诈分</span>
+    <span>G-ROUTE // 纯静态无状态 · URL Hash 本地解码 · 不存储报告数据</span>
     <span>Cloudflare Workers Static Assets · Svelte 5</span>
   </footer>
 </div>

@@ -82,7 +82,7 @@
       a.click();
       document.body.removeChild(a);
       URL.revokeObjectURL(url);
-      flash('已导出 2x 高清 PNG 体检卡');
+      flash('已导出 PNG 报告');
     } catch {
       flash('PNG 导出失败');
     } finally {
@@ -99,7 +99,7 @@
     try {
       const blob = await renderReportCardPngBlob(report, diag, resolveEffectiveDarkTheme());
       await navigator.clipboard.write([new ClipboardItem({ 'image/png': blob })]);
-      flash('已复制高清 PNG 到剪贴板');
+      flash('已复制 PNG 到剪贴板');
     } catch {
       await handleExportPng();
     } finally {
@@ -110,22 +110,22 @@
   async function handleCopyShareLink(): Promise<void> {
     const payload = await encodeReportPayload(report);
     const ok = await copyText(`${origin}/#r=${payload}`);
-    flash(ok ? '已复制离线 #r= 分享链接' : '复制失败');
+    flash(ok ? '已复制 #r= 分享链接' : '复制失败');
   }
 
   async function handleCopyMarkdown(): Promise<void> {
     const md = buildReportMarkdown(report, diag);
     const ok = await copyText(md);
-    flash(ok ? '已复制脱敏 Markdown 摘要' : '复制失败');
+    flash(ok ? '已复制 Markdown 摘要' : '复制失败');
   }
 </script>
 
-<article class="card" aria-label="Google 生态体检卡">
+<article class="card" aria-label="诊断报告">
   <header class="card-head">
     <div class="head-left">
-      <span class="mono head-brand">G-ROUTE // GOOGLE 生态体检卡</span>
+      <span class="mono head-brand">G-ROUTE // DIAGNOSTIC REPORT</span>
       {#if isSample}
-        <span class="tag tag-diff">[示例样本]</span>
+        <span class="tag tag-diff">[示例报告]</span>
       {/if}
       <span class="mono head-meta">
         {diag.transportLabel}
@@ -144,18 +144,18 @@
         [复制图片]
       </button>
       <button type="button" class="btn btn-subtle btn-xs" onclick={handleCopyShareLink}>
-        [复制 #r= 链接]
+        [复制链接]
       </button>
       <button type="button" class="btn btn-subtle btn-xs" onclick={handleCopyMarkdown}>
-        [复制 MD]
+        [复制 Markdown]
       </button>
       {#if canDiff}
         <button type="button" class="btn btn-subtle btn-xs" onclick={onOpenDiff}>
-          [双卡 Diff]
+          [报告对比]
         </button>
       {/if}
       <button type="button" class="btn btn-subtle btn-xs" onclick={onBackHome}>
-        [返回启动台]
+        [返回]
       </button>
     </div>
   </header>
@@ -220,15 +220,15 @@
       >
         {diag.googleGeoLabel}
       </div>
-      <div class="geo-sub">{diag.googleOnlyDrift ? '仅 Google 私有库送中' : '6 路真值汇总'}</div>
+      <div class="geo-sub">{diag.googleOnlyDrift ? 'Google 独立判定受限' : '6 项探测汇总'}</div>
     </div>
   </div>
 
   {#if diag.routeClusters.length > 0}
-    <section class="radar-band" aria-label="6 桶分流拓扑雷达">
+    <section class="radar-band" aria-label="出口路由拓扑">
       <div class="radar-head mono">
-        <span>[01] 6 桶分流拓扑雷达 · 自动出口聚类</span>
-        <span>共检出 {diag.routeClusters.filter((c) => !c.isCnDirect).length} 路海外出口</span>
+        <span>[01] 出口路由拓扑 · 按出口 IP 聚类</span>
+        <span>共检出 {diag.routeClusters.filter((c) => !c.isCnDirect).length} 个非直连出口</span>
       </div>
       <div class="table-wrap">
         <table class="radar-table">
@@ -286,9 +286,9 @@
             <th style="width: 36%">IPv6 ({report.v6?.ip ?? ''})</th>
           {:else}
             <th style="width: 28%">
-              实测结论 ({report.v4 ? 'IPv4' : 'IPv6'})
+              探测状态 ({report.v4 ? 'IPv4' : 'IPv6'})
             </th>
-            <th style="width: 44%">实测出口与真值细节</th>
+            <th style="width: 44%">出口槽位与响应详情</th>
           {/if}
         </tr>
       </thead>
@@ -352,28 +352,6 @@
         {/each}
       </tbody>
     </table>
-  </div>
-
-  <div class="rx-band">
-    <div class="rx-head mono">PRESCRIPTION // 针对性结论与建议</div>
-    {#each diag.prescriptions as item (item.id)}
-      <div class="rx-row">
-        <div class="rx-title-line">
-          <span class={toneClass(item.tone)}>
-            {item.tone === 'leak' ? '[需处理]' : item.tone === 'diff' ? '[留意]' : '[健康]'}
-          </span>
-          <strong>{item.title}</strong>
-        </div>
-        <div class="rx-body">
-          {item.body}
-          {#if item.actionUrl && item.actionLabel}
-            <a href={item.actionUrl} target="_blank" rel="noopener noreferrer" class="rx-link mono">
-              [{item.actionLabel} ↗]
-            </a>
-          {/if}
-        </div>
-      </div>
-    {/each}
   </div>
 </article>
 
@@ -733,51 +711,6 @@
 
   .alarm-detail {
     color: var(--fg-muted);
-  }
-
-  .rx-band {
-    border-top: 1px solid var(--rule-strong);
-    background: var(--bg-inset);
-  }
-
-  .rx-head {
-    padding: 0.42rem 0.9rem;
-    font-size: 11px;
-    font-weight: 600;
-    color: var(--fg-muted);
-    border-bottom: 1px solid var(--rule);
-  }
-
-  .rx-row {
-    padding: 0.65rem 0.9rem;
-    border-bottom: 1px solid var(--rule);
-    display: flex;
-    flex-direction: column;
-    gap: 0.25rem;
-  }
-
-  .rx-row:last-child {
-    border-bottom: none;
-  }
-
-  .rx-title-line {
-    display: flex;
-    flex-wrap: wrap;
-    align-items: center;
-    gap: 0.45rem;
-    font-size: 13px;
-  }
-
-  .rx-body {
-    font-size: 12.5px;
-    color: var(--fg-muted);
-    line-height: 1.5;
-  }
-
-  .rx-link {
-    margin-left: 0.45rem;
-    font-size: 11.5px;
-    font-weight: 600;
   }
 
   @media (max-width: 820px) {

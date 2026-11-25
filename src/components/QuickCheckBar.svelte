@@ -31,11 +31,11 @@
   }
 </script>
 
-<section class="qbar" aria-label="浏览器端快速实测条">
+<section class="qbar" aria-label="浏览器网络快照">
   <div class="qbar-head">
     <div class="qbar-title">
-      <span class="mono qbar-code">BROWSER LIVE</span>
-      <span class="qbar-desc">浏览器快检（仅测浏览器独有/准确项：双栈 · 分流 · WebRTC UDP）</span>
+      <span class="mono qbar-code">BROWSER SNAPSHOT</span>
+      <span class="qbar-desc">当前浏览器网络快照（IPv4/IPv6 双栈 · 分流基线 · WebRTC STUN）</span>
     </div>
     <div class="qbar-actions">
       <button type="button" class="btn btn-subtle btn-xs" onclick={() => (revealIp = !revealIp)}>
@@ -111,14 +111,14 @@
         {:else if v6.ip}
           {fmtIp(v6.ip)}
         {:else}
-          单 IPv4（安全）
+          仅 IPv4
         {/if}
       </div>
       <div class="qs">
         {#if v6.meta}
           AS{v6.meta.asn ?? '?'} {v6.meta.org ?? ''}
         {:else}
-          无 IPv6 跨国拖累风险
+          未检测到 IPv6 出站
         {/if}
       </div>
     </div>
@@ -127,7 +127,7 @@
       <div class="qcell-top">
         <span class="mono qk">04 WebRTC / STUN UDP</span>
         <span class={toneClass(summary.udpTone)}>
-          {summary.isUdpDomesticLeak ? '[UDP 泄露]' : summary.udpTone === 'diff' ? '[独立出口]' : summary.udpTone === 'ok' ? '[安全]' : '[WAIT]'}
+          {summary.isUdpDomesticLeak ? '[路径不一致]' : summary.udpTone === 'diff' ? '[独立出口]' : summary.udpTone === 'ok' ? '[一致]' : '[WAIT]'}
         </span>
       </div>
       <div class="qv">

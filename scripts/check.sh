@@ -37,30 +37,30 @@ fi
 
 usage() {
   cat <<'EOF'
-G-ROUTE v3 // Google 生态送中与全链路分流体检仪 (CLI)
+G-ROUTE v3 // Google 连通性与路由归属诊断工具 (CLI)
 用法:
   bash <(curl -sL https://<origin>/sh) [选项]
 
 选项:
-  --quick                  跳过交互菜单，直接执行极速纯黑盒体检
-  --inspect                白名单自动发现本机 Clash/Mihomo/sing-box 控制口 (仅本屏只读，绝不入分享链)
-  --controller <url|sock>  显式指定本地控制 API (如 http://127.0.0.1:9090 或 /tmp/verge/verge-mihomo.sock)
-  --secret <token>         配合 --inspect / --controller 使用的控制 API 密钥
-  --svg [path]             本地 100% 离线生成高清矢量 SVG 体检卡 (不依赖网页)
+  --quick                  跳过交互菜单，直接执行标准网络诊断
+  --inspect                只读查询本机 127.0.0.1 / IPC 控制接口核对 16 域路由 (仅终端显示)
+  --controller <url|sock>  显式指定本地控制接口 (如 http://127.0.0.1:9090 或 /tmp/verge/verge-mihomo.sock)
+  --secret <token>         配合 --inspect / --controller 使用的控制接口密钥
+  --svg [path]             本地离线生成矢量 SVG 报告
   --theme <light|dark>     SVG 配色主题 (默认 light)
-  --with-rules             允许将本机策略链写入本地 SVG 个人存档 (默认严格隐藏)
+  --with-rules             将本机控制口路由链写入本地 SVG 存档 (默认隐藏)
   --ascii                  使用纯 ASCII 框线 (兼容老旧终端)
-  --compact                64 列窄屏紧凑卡片 (适配手机 SSH 截图)
+  --compact                64 列窄屏紧凑卡片
   --no-menu                关闭启动前与结束后的交互菜单
   -4 / -6                  仅检测 IPv4 / 仅检测 IPv6
   -x <proxy_url>           显式指定代理 (http:// / https:// / socks5://)
-  -f, --full               显示完整 IP (默认自动脱敏如 38.59.*.*)
+  -f, --full               显示完整 IP (默认自动脱敏如 198.51.*.*)
   -j, --json               仅输出紧凑 JSON (CliReportV1)
   --no-link                不输出底部离线 #r= 链接
-  --dry-run                零发包安全审计模式: 打印全部只读 URL 与权限边界后退出
+  --dry-run                请求清单模式: 打印全部只读域名与执行边界后退出
   --vps / --direct         强制按直连出站模式判定
-  --proxy                  强制按代理/分流出站模式判定
-  --probe-search           显式开启主动 Google SERP (/search) 探测 (默认关闭以防触发 /sorry/)
+  --proxy                  强制按分流出站模式判定
+  --probe-search           显式开启主动 Google SERP (/search) 探测 (默认关闭以避免频控)
   -h, --help               显示帮助
 EOF
   exit 0
@@ -236,36 +236,37 @@ PASSIVE_TUN_NIC=$(detect_passive_nic)
 
 show_dry_run() {
   box_rule top
-  box_line "G-ROUTE v3 // --dry-run 零发包安全审计清单 (未发送任何网络请求)" "$C_CYN"
+  box_line "G-ROUTE v3 // --dry-run 请求清单与执行边界 (未发送任何网络请求)" "$C_CYN"
   box_rule mid
-  box_line "[权限边界 · 4 个绝不]" "$C_YLW"
-  box_line "  1. 绝不申请 root / sudo 提权" ""
-  box_line "  2. 绝不读取磁盘配置文件 (~/.ssh、代理订阅、Cookie) 或扫描进程" ""
-  box_line "  3. 绝不向任何服务器上传检测结果 (#r= 与 SVG 均 100% 本地离线生成)" ""
-  box_line "  4. 绝不下载二进制文件或执行远程混淆代码" ""
+  box_line "[执行边界 · 只读模式]" "$C_YLW"
+  box_line "  1. 不申请 root / sudo 提权" ""
+  box_line "  2. 不读取磁盘配置文件 (~/.ssh、应用配置、Cookie) 或扫描进程" ""
+  box_line "  3. 不向服务端上传诊断结果 (#r= 与 SVG 均在本地离线生成)" ""
+  box_line "  4. 不下载二进制文件或执行混淆代码" ""
   box_rule mid
-  box_line "[将发起的只读 HTTPS GET/HEAD 请求 · 6 桶分流雷达 + Google 6 路]" "$C_YLW"
-  box_line "  - myip.ipip.net (备选 cip.cc)              国内直连参照与绕行检测" ""
-  box_line "  - v4/v6.ident.me/json (备选 ipify)         双栈通用海外出口 ASN" ""
-  box_line "  - redirector.googlevideo.com/report_mapping Google/YT GGC 与实见 IP" ""
+  box_line "[将发起的只读 HTTPS GET/HEAD 请求 · 路由拓扑 + Google 6 项]" "$C_YLW"
+  box_line "  - myip.ipip.net                            国内直连参照点" ""
+  box_line "  - v4/v6.ident.me/json (备选 ipify)         双栈默认出站 IP 与 ASN" ""
+  box_line "  - redirector.googlevideo.com/report_mapping Google/YT GGC 与出口 IP" ""
   box_line "  - www.cloudflare.com/cdn-cgi/trace         Cloudflare 出口 / WARP / colo" ""
-  box_line "  - chatgpt.com/cdn-cgi/trace                OpenAI 实见出口 / WARP / colo" ""
-  box_line "  - claude.ai/cdn-cgi/trace               Anthropic 实见出口 / WARP / colo" ""
-  box_line "  - ipwho.is/<split_ip>                   仅对去重后的新增非 WARP 出口查 ASN" ""
-  box_line "  - gspe1-ssl.ls.apple.com/pep/gcc           Apple 第三方地域对照" ""
+  box_line "  - chatgpt.com/cdn-cgi/trace                OpenAI 侧出口 / WARP / colo" ""
+  box_line "  - claude.ai/cdn-cgi/trace                  Anthropic 侧出口 / WARP / colo" ""
+  box_line "  - ipwho.is/<split_ip>                      仅对去重后的新增非 WARP 出口查 ASN" ""
+  box_line "  - gspe1-ssl.ls.apple.com/pep/gcc           Apple 地区对照" ""
   box_line "  - gemini / notebooklm / youtube / play / searchdomaincheck / policies" ""
-  box_line "  - 主动 SERP 爬取 (--probe-search): $( [ "$OPT_PROBE_SEARCH" -eq 1 ] && echo '开启 (注意防频控)' || echo '默认关闭 (防自伤保护，仅查 searchdomaincheck)' )" ""
+  box_line "  - 主动 SERP 探测 (--probe-search): $( [ "$OPT_PROBE_SEARCH" -eq 1 ] && echo '开启 (注意频控)' || echo '默认关闭 (仅请求 searchdomaincheck，避免触发频控)' )" ""
   box_rule mid
   box_line "[当前会话被动识别]" "$C_YLW"
-  box_line "  - IP 脱敏: $( [ "$OPT_FULL" -eq 1 ] && echo '关闭 (-f 完整显示)' || echo '开启 (默认 38.59.*.*)' )" ""
-  box_line "  - 显式/系统代理: ${EFFECTIVE_PROXY:-无}" ""
+  box_line "  - IP 脱敏: $( [ "$OPT_FULL" -eq 1 ] && echo '关闭 (-f 完整显示)' || echo '开启 (默认 198.51.*.*)' )" ""
+  local px_safe; px_safe=$(printf '%s' "$EFFECTIVE_PROXY" | sed -E 's#^[a-zA-Z0-9+.-]+://##; s#^[^@/]+@##')
+  box_line "  - 显式/系统代理: ${px_safe:-无}" ""
   box_line "  - 只读虚拟网卡提示: ${PASSIVE_TUN_NIC:-未检测到活跃 TUN 网卡}" ""
   if [ -n "$OPT_CONTROLLER" ]; then
-    box_line "  - 本地控制 API: ${OPT_CONTROLLER} (仅本屏只读，绝不入分享链)" ""
+    box_line "  - 本地控制接口: ${OPT_CONTROLLER} (仅终端只读，不写入分享链)" ""
   elif [ "$OPT_INSPECT" -eq 1 ]; then
-    box_line "  - 本地控制 API: 白名单自动发现 (仅本屏只读，绝不入分享链)" ""
+    box_line "  - 本地控制接口: 只读查询本地控制口 (仅终端显示，不写入分享链)" ""
   else
-    box_line "  - 本地控制 API: 关闭 (纯黑盒模式，零本机端口/Socket 探测)" ""
+    box_line "  - 本地控制接口: 关闭 (不探测本地端口/Socket)" ""
   fi
   box_rule bot
 }
@@ -284,13 +285,13 @@ if [ "$HAS_EXPLICIT_FLAGS" -eq 0 ] && [ "$IS_INTERACTIVE" -eq 1 ] && [ "$OPT_NO_
     if [ -n "$PASSIVE_TUN_NIC" ]; then ENV_HINT="检测到活跃虚拟网卡 [${PASSIVE_TUN_NIC}]"
     elif [ "$HAS_EXPLICIT_PROXY" -eq 1 ]; then ENV_HINT="检测到代理 [${EFFECTIVE_PROXY}]"; fi
     box_rule top
-    box_line "G-ROUTE v3 // Google 生态送中与全链路分流体检仪" "$C_CYN"
-    box_line "零提权 · 零读磁盘配置 · 零数据上传  |  ${ENV_HINT}" "$C_DIM"
+    box_line "G-ROUTE v3 // Google 连通性与路由归属诊断工具" "$C_CYN"
+    box_line "只读模式 · 不读取本地配置 · 结果本地编码  |  ${ENV_HINT}" "$C_DIM"
     box_rule mid
-    box_line "  [1] 极速纯黑盒体检  (默认 · 回车即跑 · 零本地端口/Socket 探测)" "$C_GRN"
-    box_line "  [2] 深度体检 + 自动透视本机代理分组  (白名单只读查 Mihomo/sing-box)" "$C_CYN"
-    box_line "  [3] 纯离线直出模式  (跑完本地生成 SVG 体检卡，不生成网页链接)" "$C_YLW"
-    box_line "  [4] 零发包安全审计  (先看全部只读域名与 4 个绝不，不发任何包)" ""
+    box_line "  [1] 标准网络诊断      (默认 · 回车执行出口拓扑与 Google 归属探测)" "$C_GRN"
+    box_line "  [2] 含本地控制口核对  (只读查询本机 127.0.0.1 / IPC 路由一致性)" "$C_CYN"
+    box_line "  [3] 离线 SVG 报告模式 (运行后直接在本地生成 SVG，不输出网页链接)" "$C_YLW"
+    box_line "  [4] 请求清单预览      (查看将访问的只读域名与安全边界，不发包)" ""
     box_line "  [Q] 退出" "$C_DIM"
     box_rule bot
     printf '请选择 [1-4 / Q] (直接回车执行 1): ' >/dev/tty
@@ -391,7 +392,7 @@ classify_kind() {
   ident_type=$(printf '%s' "$2" | tr '[:upper:]' '[:lower:]')
   raw_ip="${3:-}"
   if is_warp_ip "$raw_ip" || printf '%s' "$org_low" | grep -qE 'cloudflare|warp'; then printf 'warp'
-  elif printf '%s' "$org_low" | grep -qE 'amazon|aws|google cloud|microsoft|azure|digitalocean|vultr|choopa|hetzner|ovh|linode|oracle|alibaba|aliyun|tencent|kirino|misaka|xtom|dmit|bandwagon|racknerd|zenlayer|m247|datacamp|leaseweb|scaleway|contabo|upcloud|vps|cloud|datacenter|hosting'; then printf 'hosting'
+  elif printf '%s' "$org_low" | grep -qE 'amazon|aws|google cloud|microsoft|azure|digitalocean|vultr|choopa|hetzner|ovh|linode|oracle|alibaba|aliyun|tencent|zenlayer|m247|datacamp|leaseweb|scaleway|contabo|upcloud|equinix|example cloud|vps|cloud|datacenter|data center|hosting|server|compute|colo'; then printf 'hosting'
   elif printf '%s' "$org_low" | grep -qE 'cox |comcast|xfinity|verizon|at&t|spectrum|charter|softbank|ntt|kddi|chunghwa|hinet|pccw|hkbn|singtel|starhub|vodafone|telekom|telecom|broadband|fiber|fibre|cable|mobile'; then printf 'isp'
   elif [ "$ident_type" = "hosting" ] || [ "$ident_type" = "isp" ] || [ "$ident_type" = "business" ]; then printf '%s' "$ident_type"
   else printf 'unknown'; fi
@@ -399,13 +400,13 @@ classify_kind() {
 
 kind_cn() {
   case "$1" in
-    hosting) printf '云机房段' ;; isp) printf '运营商段' ;; warp) printf 'WARP 出站' ;; business) printf '商业网段' ;; *) printf '未归类段' ;;
+    hosting) printf '数据中心' ;; isp) printf '运营商段' ;; warp) printf 'WARP 出站' ;; business) printf '商业网段' ;; *) printf '未归类段' ;;
   esac
 }
 
 is_cn_or_restricted() {
   case "$(printf '%s' "$1" | tr '[:upper:]' '[:lower:]')" in
-    chn|cn|china|hkg|hk|"hong kong"|mac|mo|macau|rus|ru|russia|blr|by|belarus) return 0 ;;
+    chn|cn|china|hkg|hk|"hong kong"|mac|mo|macau|macao|rus|ru|russia|blr|by|belarus|cu|cub|cuba|ir|irn|iran|kp|prk|sy|syr|syria) return 0 ;;
     *) return 1 ;;
   esac
 }
@@ -453,7 +454,7 @@ check_dns_unlock() {
 DETECTED_TUN=0
 NOW_TS=$(date -u +%s 2>/dev/null || echo 0)
 
-step_bar 1 4 "并发探测 6 桶分流雷达与双栈出口..."
+step_bar 1 4 "正在探测出站路由与双栈出口..."
 run_job cn  4 'https://myip.ipip.net'
 run_job ap  5 'https://gspe1-ssl.ls.apple.com/pep/gcc' -4
 run_job cf  6 'https://www.cloudflare.com/cdn-cgi/trace'
@@ -477,7 +478,7 @@ done
 
 CN_RAW=$(job_body cn); CN_MS=$(job_ms cn)
 CN_RAW_IP=$(printf '%s' "$CN_RAW" | grep -oE '[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+' | head -n 1 || true)
-CN_NOTE=$(printf '%s' "$CN_RAW" | sed -n 's/.*来自于[：:][[:space:]]*//p' | tr -d '\r\n' | sed 's/[[:space:]]\+/ /g' | cut -c1-48 || true)
+CN_NOTE=$(printf '%s' "$CN_RAW" | sed -n 's/.*来自于[：:][[:space:]]*//p' | tr -d '\r\n' | sed 's/[[:space:]][[:space:]]*/ /g' | awk '{print substr($0, 1, 24)}' || true)
 CN_DIRECT=""; CN_LEAK=0
 if printf '%s' "$CN_RAW" | grep -q '中国'; then
   if ! printf '%s' "$CN_RAW" | grep -qE '香港|澳门|台湾'; then CN_DIRECT="CN"; fi
@@ -539,26 +540,36 @@ CF_BODY=$(job_body cf);   CF_IP=$(trace_get "$CF_BODY" ip);   CF_LOC=$(trace_get
 OAI_BODY=$(job_body oai); OAI_IP=$(trace_get "$OAI_BODY" ip); OAI_LOC=$(trace_get "$OAI_BODY" loc | tr '[:lower:]' '[:upper:]'); OAI_COLO=$(trace_get "$OAI_BODY" colo | tr '[:lower:]' '[:upper:]'); OAI_WARP=$(trace_get "$OAI_BODY" warp | tr '[:upper:]' '[:lower:]'); OAI_MS=$(job_ms oai)
 CLD_BODY=$(job_body cld); CLD_IP=$(trace_get "$CLD_BODY" ip); CLD_LOC=$(trace_get "$CLD_BODY" loc | tr '[:lower:]' '[:upper:]'); CLD_COLO=$(trace_get "$CLD_BODY" colo | tr '[:lower:]' '[:upper:]'); CLD_WARP=$(trace_get "$CLD_BODY" warp | tr '[:upper:]' '[:lower:]'); CLD_MS=$(job_ms cld)
 
-# Local frequency cooldown guardrail (10-min sliding window per masked exit IP)
+# Local frequency cooldown guardrail (user-private cache dir, atomic update)
 COOLDOWN_WARN=""
-CD_FILE="/tmp/groute_cooldown.log"
+CD_DIR="${XDG_CACHE_HOME:-${HOME:-/tmp}/.cache}/g-route"
+if ! mkdir -p "$CD_DIR" 2>/dev/null; then
+  CD_DIR="/tmp/groute-$(id -u 2>/dev/null || echo 0)"
+  mkdir -p "$CD_DIR" 2>/dev/null || true
+fi
+chmod 700 "$CD_DIR" 2>/dev/null || true
+CD_FILE="${CD_DIR}/cooldown.log"
 CD_KEY=$(mask_ip "${V4_RAW_IP:-$V6_RAW_IP}")
 CD_NOW=$(date +%s 2>/dev/null || echo 0)
-if [ -n "$CD_KEY" ] && [ "$CD_NOW" -gt 0 ]; then
-  if [ -f "$CD_FILE" ]; then
-    awk -v now="$CD_NOW" '(now - $1) < 600' "$CD_FILE" > "${CD_FILE}.tmp" 2>/dev/null && mv "${CD_FILE}.tmp" "$CD_FILE" 2>/dev/null || true
+if [ -n "$CD_KEY" ] && [ "$CD_NOW" -gt 0 ] && [ -d "$CD_DIR" ]; then
+  CD_TMP=$(mktemp "${CD_DIR}/cd.XXXXXX" 2>/dev/null || true)
+  if [ -n "$CD_TMP" ]; then
+    if [ -f "$CD_FILE" ]; then
+      awk -v now="$CD_NOW" '(now - $1) < 600' "$CD_FILE" > "$CD_TMP" 2>/dev/null || true
+    fi
+    printf '%s %s\n' "$CD_NOW" "$CD_KEY" >> "$CD_TMP" 2>/dev/null || true
+    mv -f "$CD_TMP" "$CD_FILE" 2>/dev/null || rm -f "$CD_TMP" 2>/dev/null || true
   fi
-  printf '%s %s\n' "$CD_NOW" "$CD_KEY" >> "$CD_FILE" 2>/dev/null || true
   CD_CNT=$(awk -v k="$CD_KEY" '$2==k {c++} END{print c+0}' "$CD_FILE" 2>/dev/null || echo 0)
   if [ "$CD_CNT" -ge 3 ]; then
-    COOLDOWN_WARN="[!] 冷却提醒: 当前出口 (${CD_KEY}) 10 分钟内已运行 ${CD_CNT} 次体检，高频探测易触发 Google /sorry/ 风控"
+    COOLDOWN_WARN="[!] 频率提示: 当前出口 (${CD_KEY}) 10 分钟内已执行 ${CD_CNT} 次探测，高频请求可能触发 Google /sorry/ 限制"
   fi
 fi
 
 # ---------------------------------------------------------------------------
-# Wave 2: Staggered Google 6-Way Ground Truth (Anti-Self-Harm Micro-Batches)
+# Wave 2: Staggered Google 6-Way Ground Truth (Micro-Batches)
 # ---------------------------------------------------------------------------
-step_bar 2 4 "错峰实测 Google 6 路真值与独立出口归属..."
+step_bar 2 4 "正在探测 Google 服务归属地与可达性..."
 launch_stack_w2a() {
   local ver="$1" sf="-$1"
   run_job "v${ver}_gem"  12 'https://gemini.google.com/app' "$sf" -L -H 'Accept-Language: en-US,en;q=0.9'
@@ -584,6 +595,7 @@ ASN_LIST_FILE="$TMPDIR_GR/asn_map.txt"
 ASN_IDX=0
 for cip in "$V4_GIP_RAW" "$V6_GIP_RAW" "$CF_IP" "$OAI_IP" "$CLD_IP"; do
   [ -n "$cip" ] || continue
+  printf '%s' "$cip" | grep -qE '^[0-9a-fA-F:.]+$' || continue
   case "$ASN_SEEN" in *"|${cip}|"*) continue ;; esac
   ASN_SEEN="${ASN_SEEN}${cip}|"
   if is_warp_ip "$cip"; then continue; fi
@@ -722,8 +734,8 @@ parse_stack_w2() {
   if is_google_sorry "$trm_code" "$trm_url" "$trm_body"; then
     trm_st="captcha"
   else
-    trm_cv=$(printf '%s' "$trm_body" | grep -oE 'Country version:?</[^>]+>[[:space:]]*[A-Za-z][^<]{1,42}' | head -n 1 | sed -E 's/^[^>]+>[[:space:]]*//; s/[[:space:]]+$//' || true)
-    if [ -z "$trm_cv" ]; then trm_cv=$(printf '%s' "$trm_body" | grep -oE 'Country version:[[:space:]]*[A-Za-z][A-Za-z ,.&'\''-]{1,40}' | head -n 1 | sed -E 's/^Country version:[[:space:]]*//; s/[[:space:]]+$//' || true); fi
+    trm_cv=$(printf '%s' "$trm_body" | grep -oE 'Country version(</[^>]+>)*[[:space:]]*:[[:space:]]*(<[^>]+>[[:space:]]*)*[A-Za-z][A-Za-z ,.&'\''-]{1,40}' | head -n 1 | sed -E 's/.*:[[:space:]]*(<[^>]+>[[:space:]]*)*//; s/[[:space:]]+$//' || true)
+    if [ -z "$trm_cv" ]; then trm_cv=$(printf '%s' "$trm_body" | grep -oE 'Country version:?</[^>]+>[[:space:]]*[A-Za-z][^<]{1,42}' | head -n 1 | sed -E 's/^[^>]+>[[:space:]]*//; s/[[:space:]]+$//' || true); fi
     trm_ent=$(printf '%s' "$trm_body" | grep -oE 'Google Ireland Limited|Google LLC|Google Asia Pacific|Google Commerce Limited' | head -n 1 || true)
     [ -n "$trm_cv" ] && trm_st="ok"
   fi
@@ -783,12 +795,13 @@ elif [ -n "$PASSIVE_TUN_NIC" ] && { [ -n "$CN_DIRECT" ] || [ "$SPLIT_HIT" -eq 1 
   NET_LABEL="本机 TUN · Real-IP (${PASSIVE_TUN_NIC})"
 elif [ "$HAS_EXPLICIT_PROXY" -eq 1 ]; then
   NET_KIND="sysproxy"
-  PX_SHORT=$(printf '%s' "$EFFECTIVE_PROXY" | sed -E 's#^https?://##')
+  PX_SHORT=$(printf '%s' "$EFFECTIVE_PROXY" | sed -E 's#^[a-zA-Z0-9+.-]+://##; s#^[^@/]+@##' | awk '{print substr($0, 1, 32)}')
   NET_LABEL="系统代理 (${PX_SHORT})"
 elif [ -n "$CN_DIRECT" ] && [ -n "$P_CC" ] && [ "$P_CC" != "CN" ]; then
   NET_KIND="router"
-  NET_LABEL="上游透明代理 / 旁路由"
+  NET_LABEL="上游透明路由 / 旁路由"
 fi
+NET_LABEL=$(printf '%s' "$NET_LABEL" | awk '{print substr($0, 1, 48)}')
 
 if [ -n "$OPT_MODE" ]; then RUN_MODE="$OPT_MODE"
 elif [ "$NET_KIND" != "direct" ]; then RUN_MODE="proxy"
@@ -802,9 +815,9 @@ CLUSTERS_FILE="$TMPDIR_GR/clusters.txt"
 if [ -n "$CN_DIRECT" ] || { [ "$RUN_MODE" = "proxy" ] && [ -n "$CN_RAW_IP" ] && [ -n "$CN_NOTE" ]; }; then
   CN_IP_M=$(mask_ip "$CN_RAW_IP")
   if [ -n "$CN_DIRECT" ]; then
-    printf '直连 CN|ok|%s|%s|国内直连 (未绕行代理)|%s|0|1\n' "${CN_IP_M:---}" "${CN_NOTE:-国内直连}" "${CN_MS}" >> "$CLUSTERS_FILE"
+    printf '直连 CN|ok|%s|%s|国内直连出口|%s|0|1\n' "${CN_IP_M:---}" "${CN_NOTE:-国内直连}" "${CN_MS}" >> "$CLUSTERS_FILE"
   else
-    printf '国内异常|leak|%s|%s|国内桶落入海外!|%s|0|0\n' "${CN_IP_M:---}" "${CN_NOTE:-非CN出口}" "${CN_MS}" >> "$CLUSTERS_FILE"
+    printf '国内异常|leak|%s|%s|国内参照点落入非 CN 出口|%s|0|0\n' "${CN_IP_M:---}" "${CN_NOTE:-非CN出口}" "${CN_MS}" >> "$CLUSTERS_FILE"
   fi
 fi
 
@@ -897,11 +910,20 @@ AI_UNIQUE=$(printf '%s\n%s\n%s\n' "$(mask_ip "$P_GIP_RAW")" "$(mask_ip "$OAI_IP"
 if [ "$AI_UNIQUE" -ge 2 ]; then add_alarm "ai_split" "diff" "[i] 跨 AI 生态分流: Google/YT · ChatGPT · Claude 命中了 ${AI_UNIQUE} 条不同海外出口"; fi
 if [ "$HAS_WARP_BUCKET" -eq 1 ]; then add_alarm "warp_egress" "ok" "[i] 检出 Cloudflare WARP 出站: 部分业务经 WARP 转发，有效隔离原始机房段"; fi
 
+stack_has_any_google() {
+  local gem="$1" nlm="$2" yt="$3" play="$4" sdom="$5" trm="$6"
+  [ -n "$gem" ] || [ "$nlm" = "ok" ] || [ "$nlm" = "unavail" ] || [ "$yt" = "ok" ] || [ "$yt" = "cn" ] || [ "$yt" = "noprem" ] || [ -n "$play" ] || [ -n "$trm" ] || [ -n "$sdom" ]
+}
+
+ANY_GOOGLE_OK=0
+if [ "$V4_OK" -eq 1 ] && stack_has_any_google "$V4_GEM" "$V4_NLM" "$V4_YT" "$V4_PLAY" "$V4_SDOM" "$V4_TRM"; then ANY_GOOGLE_OK=1; fi
+if [ "$V6_OK" -eq 1 ] && stack_has_any_google "$V6_GEM" "$V6_NLM" "$V6_YT" "$V6_PLAY" "$V6_SDOM" "$V6_TRM"; then ANY_GOOGLE_OK=1; fi
+
 EFF_KIND="$P_KIND"
 if [ "$SPLIT_HIT" -eq 1 ] && [ -n "$P_GKIND" ]; then EFF_KIND="$P_GKIND"; fi
 V_TAG="CLEAN"; V_COL="$C_GRN"; V_TONE="ok"
-V_TEXT="Google 全家桶全绿可用"
-if [ "$EFF_KIND" = "hosting" ]; then V_TEXT="云机房出口全绿可用 · 实测无送中无验证码 (反焦虑认证)"; fi
+V_TEXT="Google 服务可达 · 地区判定一致"
+if [ "$EFF_KIND" = "hosting" ]; then V_TEXT="数据中心出口可达 · 6 项服务响应正常"; fi
 
 ANY_GEM_CAPTCHA=0
 ANY_GEM_TIMEOUT=0
@@ -912,25 +934,28 @@ if [ "$V4_SCAP" = "captcha" ] || [ "$V6_SCAP" = "captcha" ] || [ "$V4_NLM" = "ca
 
 if [ "$DUAL_CONFLICT" -eq 1 ]; then
   V_TAG="STACK_SPLIT"; V_COL="$C_YLW"; V_TONE="diff"
-  V_TEXT="双栈不对称: IPv4(${V4_GEM:-?}) vs IPv6(${V6_GEM:-?})，建议关闭冲突栈"
+  V_TEXT="双栈不对称: IPv4(${V4_GEM:-?}) vs IPv6(${V6_GEM:-?})，建议统一协议栈"
 elif [ "$D4" -eq 1 ] || [ "$D6" -eq 1 ]; then
   V_TAG="CN_DRIFT"; V_COL="$C_RED"; V_TONE="leak"
   if [ -n "$P_CC" ] && ! is_cn_or_restricted "$P_CC"; then
-    V_TEXT="实锤 Google 私有库送中 (公开库 ${P_CC} / Apple ${APPLE_CC:-?}，但 Google 判受限)"
-  else V_TEXT="Google 生态判定为受限地区 / 送中"; fi
+    V_TEXT="Google 归属地偏移至受限区 (公开库 ${P_CC} / Apple ${APPLE_CC:-?}，Google 判受限)"
+  else V_TEXT="Google 判定当前出口位于受限地区"; fi
 elif [ "$ANY_GEM_CAPTCHA" -eq 1 ]; then
   V_TAG="PARTIAL"; V_COL="$C_RED"; V_TONE="leak"
-  V_TEXT="Gemini 触发 /sorry/ 异常流量拦截 (429)，请冷却 30 分钟或浏览器过验"
+  V_TEXT="Gemini 触发 /sorry/ 异常流量验证 (HTTP 429)，建议冷却后重试"
 elif [ "$ANY_OTHER_CAPTCHA" -eq 1 ]; then
   V_TAG="PARTIAL"; V_COL="$C_YLW"; V_TONE="diff"
-  V_TEXT="检测到 Google /sorry/ 异常流量人机验证，建议降低探测频率或换出口"
+  V_TEXT="检测到 Google /sorry/ 异常流量验证，建议降低请求频率"
 elif [ "$ANY_GEM_TIMEOUT" -eq 1 ]; then
   V_TAG="PARTIAL"; V_COL="$C_YLW"; V_TONE="diff"
-  V_TEXT="Gemini 探测超时 (12s)，可能被临时限速或代理链路抖动"
+  V_TEXT="Gemini 探测超时 (12s)，可能被临时限速或链路抖动"
+elif [ "$ANY_GOOGLE_OK" -eq 0 ]; then
+  V_TAG="PARTIAL"; V_COL="$C_YLW"; V_TONE="diff"
+  V_TEXT="Google 服务探测均无有效响应，请检查网络连通性"
 elif [ "$SPLIT_HIT" -eq 1 ] || [ "$OV_SLOTS" -ge 2 ]; then
   V_TAG="SPLIT_ROUTE"; V_COL="$C_CYN"; V_TONE="ok"
-  if [ -n "$P_GORG" ]; then V_TEXT="跨组分流生效 · 检出 ${OV_SLOTS} 路海外出口 (Google 经 ${P_GORG} 可用)"
-  else V_TEXT="跨组分流生效 · 检出 ${OV_SLOTS} 路海外出口且 Google 全绿可用"; fi
+  if [ -n "$P_GORG" ]; then V_TEXT="多出口分流生效 · 检出 ${OV_SLOTS} 个非直连出口 (Google 经 ${P_GORG} 可达)"
+  else V_TEXT="多出口分流生效 · 检出 ${OV_SLOTS} 个非直连出口且 Google 服务响应正常"; fi
 fi
 
 # Compute anonymized per-service exit slot labels (ZERO proxy node names!)
@@ -1114,7 +1139,7 @@ run_local_controller_audit() {
   DID_INSPECT=1
   : > "$LOCAL_RULES_FILE"
   box_rule mid
-  box_line "[03] 本地只读控制 API · 15 域分流一致性审计 (仅本屏展示，默认绝不入图/分享链)" "$C_CYN"
+  box_line "[03] 本地只读控制口 · 16 域按路由链聚合核对 (仅终端展示，不写入分享链)" "$C_CYN"
 
   local ep="" lbl="" code="000" body="" auth_ep="" auth_lbl=""
   if [ -n "$OPT_CONTROLLER" ]; then
@@ -1256,7 +1281,7 @@ $(printf '%s\n' "$cr_b" | sed '$d')"
     www.google.com play.google.com policies.google.com www.youtube.com redirector.googlevideo.com \
     chatgpt.com claude.ai v4.ident.me; do
     local chunk
-    chunk=$(printf '%s' "$c_json" | sed 's/{"id":/\n{"id":/g' | grep "\"${dom}\"" | tail -n 1 || true)
+    chunk=$(printf '%s' "$c_json" | awk '{gsub(/\{"id":/, "\n{\"id\":"); print}' | grep -F "\"${dom}\"" | tail -n 1 || true)
     if [ -n "$chunk" ]; then
       local rt rp rlbl ch_raw ch_rev top_g leaf_n mis=0
       rt=$(printf '%s' "$chunk" | sed -n 's/.*"rule":"\([^"]*\)".*/\1/p')
@@ -1350,7 +1375,7 @@ cell_text() {
     yt)     case "$yt" in ok) echo "${okp}OK [${ytg:-OK}]" ;; cn) echo "${nop}CN_DRIFT" ;; noprem) echo "${nop}NO_PREM (GL=${ytg:-?})" ;; *) echo "N/A" ;; esac ;;
     cdn)    if [ -z "$cdn" ]; then echo "N/A"; else local t="$cdn"; [ "$cdnu" -eq 1 ] && t="${t} [u]"; echo "${okp}${t}"; fi ;;
     play)   if [ "$playst" = "captcha" ]; then echo "${nop}CAPTCHA (/sorry)"; elif [ -z "$play" ]; then echo "N/A"; elif is_cn_or_restricted "$play"; then echo "${nop}$play [CN]"; else echo "${okp}$play"; fi ;;
-    search) if [ "$scap" = "captcha" ]; then echo "${wnp}CAPTCHA (/sorry)"; elif [ "$sdom" = "hkredirect" ] || [ "$scap" = "hk" ]; then echo "${nop}HK_REDIRECT (.hk)"; elif [ "$scap" = "jswall" ]; then echo "${wnp}${sdom:-SERP} (JS墙)"; elif [ "$scap" = "ok" ]; then echo "${okp}${sdom:-OK} (Clean)"; elif [ -n "$sdom" ] && { [ -z "$scap" ] || [ "$scap" = "skipped" ]; }; then echo "${okp}${sdom} (域正常)"; elif [ -n "$sdom" ] && [ "$scap" = "err" ]; then echo "${wnp}${sdom} (SERP异常)"; else echo "N/A"; fi ;;
+    search) if [ "$sdom" = "hkredirect" ] || [ "$scap" = "hk" ]; then echo "${nop}HK_REDIRECT (.hk)"; elif [ "$scap" = "captcha" ]; then echo "${wnp}CAPTCHA (/sorry)"; elif [ "$scap" = "jswall" ]; then echo "${wnp}${sdom:-SERP} (JS墙)"; elif [ "$scap" = "ok" ]; then echo "${okp}${sdom:-OK} (Clean)"; elif [ -n "$sdom" ] && { [ -z "$scap" ] || [ "$scap" = "skipped" ]; }; then echo "${okp}${sdom} (域正常)"; elif [ -n "$sdom" ] && [ "$scap" = "err" ]; then echo "${wnp}${sdom} (SERP异常)"; else echo "N/A"; fi ;;
     terms)  if [ "$trmst" = "captcha" ]; then echo "${nop}CAPTCHA (/sorry)"; elif [ -z "$trm" ]; then echo "N/A"; elif is_cn_or_restricted "$trm"; then echo "${nop}$trm [CN]"; elif [ "$ent" = "Google Ireland Limited" ]; then echo "${wnp}$trm (EEA)"; else echo "${okp}$trm"; fi ;;
   esac
 }
@@ -1362,9 +1387,9 @@ cell_tone() {
     gem)    if [ "$gemst" = "captcha" ]; then echo "leak"; elif [ "$gemst" = "timeout" ]; then echo "diff"; elif [ -z "$gem" ]; then echo "muted"; elif is_cn_or_restricted "$gem"; then echo "leak"; else echo "ok"; fi ;;
     nlm)    case "$nlm" in captcha|unavail) echo "leak" ;; ok) echo "ok" ;; *) echo "muted" ;; esac ;;
     yt)     case "$yt" in ok) echo "ok" ;; cn|noprem) echo "leak" ;; *) echo "muted" ;; esac ;;
-    cdn)    [ -z "$cdn" ] && echo "muted" || { [ -n "$ip" ] && [ -n "$gip" ] && [ "$ip" != "$gip" ] && echo "diff" || echo "ok"; } ;;
+    cdn)    [ -z "$cdn" ] && echo "muted" || echo "ok" ;;
     play)   if [ "$playst" = "captcha" ]; then echo "leak"; elif [ -z "$play" ]; then echo "muted"; elif is_cn_or_restricted "$play"; then echo "leak"; else echo "ok"; fi ;;
-    search) if [ "$scap" = "captcha" ] || [ "$scap" = "jswall" ]; then echo "diff"; elif [ "$sdom" = "hkredirect" ] || [ "$scap" = "hk" ]; then echo "leak"; elif [ "$scap" = "ok" ]; then echo "ok"; elif [ -n "$sdom" ] && { [ -z "$scap" ] || [ "$scap" = "skipped" ]; }; then echo "ok"; elif [ -n "$sdom" ] && [ "$scap" = "err" ]; then echo "diff"; else echo "muted"; fi ;;
+    search) if [ "$sdom" = "hkredirect" ] || [ "$scap" = "hk" ]; then echo "leak"; elif [ "$scap" = "captcha" ] || [ "$scap" = "jswall" ]; then echo "diff"; elif [ "$scap" = "ok" ]; then echo "ok"; elif [ -n "$sdom" ] && { [ -z "$scap" ] || [ "$scap" = "skipped" ]; }; then echo "ok"; elif [ -n "$sdom" ] && [ "$scap" = "err" ]; then echo "diff"; else echo "muted"; fi ;;
     terms)  if [ "$trmst" = "captcha" ]; then echo "leak"; elif [ -z "$trm" ]; then echo "muted"; elif is_cn_or_restricted "$trm"; then echo "leak"; elif [ "$ent" = "Google Ireland Limited" ]; then echo "diff"; else echo "ok"; fi ;;
   esac
 }
@@ -1373,16 +1398,21 @@ tone_col() {
   case "$1" in ok) printf '%s' "$C_GRN" ;; diff) printf '%s' "$C_YLW" ;; leak) printf '%s' "$C_RED" ;; *) printf '%s' "$C_DIM" ;; esac
 }
 
+P_GOOGLE_DISP="$P_GEM"
+if [ -z "$P_GOOGLE_DISP" ]; then
+  eval "P_GOOGLE_DISP=\${V${PVER}_PLAY:-\${V${PVER}_TRM:-\${V${PVER}_YTG:-?}}}"
+fi
+
 box_rule top
-box_line "G-ROUTE v3 // Google 生态送中与分流体检卡  [${NET_LABEL}] ${UTC_TIME}" "$C_CYN"
+box_line "G-ROUTE v3 // 出口归属与服务可达性报告  [${NET_LABEL}] ${UTC_TIME}" "$C_CYN"
 box_rule mid
 box_line "结论  [${V_TAG}] ${V_TEXT}" "$V_COL"
-box_line "三方对照: 公开库=${P_CC:-?}  |  Apple=${APPLE_CC:-?}  |  Google 实测=${P_GEM:-?}  |  DNS=${P_DNS:-skip}" "$C_DIM"
+box_line "三方对照: 公开库=${P_CC:-?}  |  Apple=${APPLE_CC:-?}  |  Google 实测=${P_GOOGLE_DISP:-?}  |  DNS=${P_DNS:-skip}" "$C_DIM"
 [ -n "$COOLDOWN_WARN" ] && box_line "$COOLDOWN_WARN" "$C_YLW"
 
-# [01] 6-Bucket Split-Route Topology Radar
+# [01] Route Topology
 box_rule mid
-box_line "[01] 6 桶分流拓扑雷达 (自动聚类: ${OV_SLOTS} 路海外出口$( [ -n "$CN_DIRECT" ] && echo ' + 国内直连' ))" "$C_CYN"
+box_line "[01] 出口路由拓扑 (按出口 IP 聚类: ${OV_SLOTS} 个非直连出口$( [ -n "$CN_DIRECT" ] && echo ' + 国内直连' ))" "$C_CYN"
 SW=11; IPW=40; MSW=7
 if [ "$OPT_COMPACT" -eq 1 ]; then IPW=18; fi
 BKW=$((BOX_W - 4 - SW - IPW - MSW - 3))
@@ -1513,7 +1543,7 @@ export_local_svg() {
 
     # Header
     printf '<rect x="%d" y="%d" width="%d" height="51" fill="%s"/>\n' "$((pad+1))" "$((y+1))" "$((inner-2))" "$bgsub"
-    printf '<text x="%d" y="%d" class="m" font-size="14" font-weight="700" fill="%s">G-ROUTE v3 // GOOGLE 生态送中与分流体检卡</text>\n' "$((pad+18))" "$((y+31))" "$fg"
+    printf '<text x="%d" y="%d" class="m" font-size="14" font-weight="700" fill="%s">G-ROUTE v3 // 出口归属与服务可达性报告</text>\n' "$((pad+18))" "$((y+31))" "$fg"
     printf '<text x="%d" y="%d" class="m" font-size="11.5" text-anchor="end" fill="%s">%s</text>\n' "$((pad+inner-18))" "$((y+31))" "$fgm" "$(xml_esc "${NET_LABEL}  ·  ${UTC_TIME}")"
     y=$((y + 52))
     printf '<line x1="%d" y1="%d" x2="%d" y2="%d" stroke="%s" stroke-width="1"/>\n' "$pad" "$y" "$((pad+inner))" "$y" "$str"
@@ -1523,13 +1553,13 @@ export_local_svg() {
     printf '<rect x="%d" y="%d" width="%d" height="26" fill="%s" stroke="%s" stroke-width="1"/>\n' "$((pad+18))" "$((y+16))" "$tw" "$vbg" "$vfg"
     printf '<text x="%d" y="%d" class="m" font-size="12" font-weight="700" text-anchor="middle" fill="%s">[%s]</text>\n' "$((pad+18 + tw/2))" "$((y+33))" "$vfg" "$V_TAG"
     printf '<text x="%d" y="%d" class="s" font-size="15" font-weight="700" fill="%s" clip-path="url(#cc)">%s</text>\n' "$((pad+28+tw))" "$((y+34))" "$fg" "$(xml_esc "$V_TEXT")"
-    printf '<text x="%d" y="%d" class="m" font-size="11.5" fill="%s" clip-path="url(#cc)">%s</text>\n' "$((pad+18))" "$((y+66))" "$fgm" "$(xml_esc "三方对照: 公开库=${P_CC:-?}  |  Apple=${APPLE_CC:-?}  |  Google 实测=${P_GEM:-?}  |  通用出口: ${P_IP} (AS${P_ASN:-?} ${P_ORG:-Unknown})")"
+    printf '<text x="%d" y="%d" class="m" font-size="11.5" fill="%s" clip-path="url(#cc)">%s</text>\n' "$((pad+18))" "$((y+66))" "$fgm" "$(xml_esc "三方对照: 公开库=${P_CC:-?}  |  Apple=${APPLE_CC:-?}  |  Google 实测=${P_GOOGLE_DISP:-?}  |  默认出口: ${P_IP} (AS${P_ASN:-?} ${P_ORG:-Unknown})")"
     y=$((y + 86))
     printf '<line x1="%d" y1="%d" x2="%d" y2="%d" stroke="%s" stroke-width="1"/>\n' "$pad" "$y" "$((pad+inner))" "$y" "$str"
 
-    # [01] 6-Bucket Radar
+    # [01] Route Topology
     printf '<rect x="%d" y="%d" width="%d" height="31" fill="%s"/>\n' "$((pad+1))" "$((y+1))" "$((inner-2))" "$bgsub"
-    printf '<text x="%d" y="%d" class="m" font-size="11.5" font-weight="700" fill="%s">[01] 6 桶分流拓扑雷达 · 自动聚类 (%s 路海外出口)</text>\n' "$((pad+18))" "$((y+21))" "$fgm" "$OV_SLOTS"
+    printf '<text x="%d" y="%d" class="m" font-size="11.5" font-weight="700" fill="%s">[01] 出口路由拓扑 · 按出口 IP 聚类 (%s 个非直连出口)</text>\n' "$((pad+18))" "$((y+21))" "$fgm" "$OV_SLOTS"
     printf '<text x="%d" y="%d" class="m" font-size="11" text-anchor="end" fill="%s">RTT</text>\n' "$((pad+inner-18))" "$((y+21))" "$fgf"
     y=$((y + 32))
     while IFS='|' read -r cs ct cip corg cbkt cms _w _cn; do
@@ -1552,15 +1582,15 @@ export_local_svg() {
     y=$((y + 14))
     printf '<line x1="%d" y1="%d" x2="%d" y2="%d" stroke="%s" stroke-width="1"/>\n' "$pad" "$y" "$((pad+inner))" "$y" "$str"
 
-    # [02] Google 6-Way Matrix
+    # [02] Google Matrix
     printf '<rect x="%d" y="%d" width="%d" height="31" fill="%s"/>\n' "$((pad+1))" "$((y+1))" "$((inner-2))" "$bgsub"
-    printf '<text x="%d" y="%d" class="m" font-size="11.5" font-weight="700" fill="%s">[02] GOOGLE 生态 6 路真值矩阵</text>\n' "$((pad+18))" "$((y+21))" "$fgm"
+    printf '<text x="%d" y="%d" class="m" font-size="11.5" font-weight="700" fill="%s">[02] GOOGLE 服务可达性与归属矩阵</text>\n' "$((pad+18))" "$((y+21))" "$fgm"
     if [ "$V4_OK" -eq 1 ] && [ "$V6_OK" -eq 1 ]; then
       printf '<text x="%d" y="%d" class="m" font-size="11" fill="%s">IPv4 (%s)</text>\n' "$((pad+270))" "$((y+21))" "$fgm" "$(xml_esc "$V4_IP")"
       printf '<text x="%d" y="%d" class="m" font-size="11" fill="%s">IPv6 (%s)</text>\n' "$((pad+560))" "$((y+21))" "$fgm" "$(xml_esc "$V6_IP")"
     else
-      printf '<text x="%d" y="%d" class="m" font-size="11" fill="%s">实测结论</text>\n' "$((pad+244))" "$((y+21))" "$fgm"
-      printf '<text x="%d" y="%d" class="m" font-size="11" fill="%s">实测出口 (匿名槽位)</text>\n' "$((pad+474))" "$((y+21))" "$fgm"
+      printf '<text x="%d" y="%d" class="m" font-size="11" fill="%s">探测状态</text>\n' "$((pad+244))" "$((y+21))" "$fgm"
+      printf '<text x="%d" y="%d" class="m" font-size="11" fill="%s">出口槽位 (匿名)</text>\n' "$((pad+474))" "$((y+21))" "$fgm"
       printf '<text x="%d" y="%d" class="m" font-size="11" text-anchor="end" fill="%s">RTT</text>\n' "$((pad+inner-18))" "$((y+21))" "$fgf"
     fi
     y=$((y + 32))
@@ -1580,27 +1610,27 @@ export_local_svg() {
       printf '<line x1="%d" y1="%d" x2="%d" y2="%d" stroke="%s" stroke-width="1"/>\n' "$pad" "$y" "$((pad+inner))" "$y" "$rule"
       printf '<text x="%d" y="%d" class="s" font-size="12.5" font-weight="600" fill="%s">%s</text>\n' "$((pad+18))" "$((y+21))" "$fg" "$(xml_esc "$nm")"
       if [ "$V4_OK" -eq 1 ] && [ "$V6_OK" -eq 1 ]; then
-        printf '<text x="%d" y="%d" class="m" font-size="12" font-weight="600" fill="%s">%s</text>\n' "$((pad+270))" "$((y+21))" "$(svg_fg "$(cell_tone "$k" 4)")" "$(xml_esc "$(cell_text "$k" 4)")"
-        printf '<text x="%d" y="%d" class="m" font-size="12" font-weight="600" fill="%s">%s</text>\n' "$((pad+560))" "$((y+21))" "$(svg_fg "$(cell_tone "$k" 6)")" "$(xml_esc "$(cell_text "$k" 6)")"
+        printf '<text x="%d" y="%d" class="m" font-size="12" font-weight="600" fill="%s">%s</text>\n' "$((pad+270))" "$((y+21))" "$(svg_fg "$(cell_tone "$k" 4)")" "$(xml_esc "$(pad_disp "$(cell_text "$k" 4)" 28)")"
+        printf '<text x="%d" y="%d" class="m" font-size="12" font-weight="600" fill="%s">%s</text>\n' "$((pad+560))" "$((y+21))" "$(svg_fg "$(cell_tone "$k" 6)")" "$(xml_esc "$(pad_disp "$(cell_text "$k" 6)" 28)")"
       else
         local mstr="--" ctone ctxt cfg cbg
         if [ -n "$mk" ]; then eval "local mr=\$V${PVER}_${mk}_MS"; [ -n "$mr" ] && mstr="${mr}ms"; fi
-        ctone=$(cell_tone "$k" "$PVER"); ctxt=$(cell_text "$k" "$PVER")
+        ctone=$(cell_tone "$k" "$PVER"); ctxt=$(pad_disp "$(cell_text "$k" "$PVER")" 23 | sed 's/[[:space:]]*$//')
         cfg=$(svg_fg "$ctone"); cbg=$(svg_bg "$ctone")
-        printf '<rect x="%d" y="%d" width="196" height="22" fill="%s" stroke="%s" stroke-width="1"/>\n' "$((pad+244))" "$((y+6))" "$cbg" "$cfg"
+        printf '<rect x="%d" y="%d" width="212" height="22" fill="%s" stroke="%s" stroke-width="1"/>\n' "$((pad+244))" "$((y+6))" "$cbg" "$cfg"
         printf '<text x="%d" y="%d" class="m" font-size="11.5" font-weight="700" fill="%s">%s</text>\n' "$((pad+252))" "$((y+21))" "$cfg" "$(xml_esc "$ctxt")"
         case "$exd" in
-          "出口 "*)
+          "出口 "*|"直连 "*)
             local ex_sl ex_rs efg ebg
             ex_sl=$(printf '%s' "$exd" | awk '{print $1 " " $2}')
-            ex_rs=$(printf '%s' "$exd" | sed -E 's/^出口 [A-Z][[:space:]]*·?[[:space:]]*//')
+            ex_rs=$(printf '%s' "$exd" | sed -E 's/^(出口 [A-Z]|直连 CN)[[:space:]]*·?[[:space:]]*//')
             efg=$(svg_ex_fg "$ex_sl"); ebg=$(svg_ex_bg "$ex_sl")
             printf '<rect x="%d" y="%d" width="62" height="20" fill="%s" stroke="%s" stroke-width="1"/>\n' "$((pad+474))" "$((y+7))" "$ebg" "$efg"
             printf '<text x="%d" y="%d" class="m" font-size="10.5" font-weight="700" text-anchor="middle" fill="%s">%s</text>\n' "$((pad+505))" "$((y+21))" "$efg" "$(xml_esc "$ex_sl")"
-            printf '<text x="%d" y="%d" class="m" font-size="11.5" fill="%s">%s</text>\n' "$((pad+544))" "$((y+21))" "$fg" "$(xml_esc "$ex_rs")"
+            printf '<text x="%d" y="%d" class="m" font-size="11.5" fill="%s">%s</text>\n' "$((pad+544))" "$((y+21))" "$fg" "$(xml_esc "$(pad_disp "$ex_rs" 28 | sed 's/[[:space:]]*$//')")"
             ;;
           *)
-            printf '<text x="%d" y="%d" class="m" font-size="11.5" fill="%s">%s</text>\n' "$((pad+474))" "$((y+21))" "$fgm" "$(xml_esc "$exd")"
+            printf '<text x="%d" y="%d" class="m" font-size="11.5" fill="%s">%s</text>\n' "$((pad+474))" "$((y+21))" "$fgm" "$(xml_esc "$(pad_disp "$exd" 34 | sed 's/[[:space:]]*$//')")"
             ;;
         esac
         printf '<text x="%d" y="%d" class="m" font-size="11" text-anchor="end" fill="%s">%s</text>\n' "$((pad+inner-18))" "$((y+21))" "$fgf" "$mstr"
@@ -1612,24 +1642,24 @@ export_local_svg() {
     if [ "$inc_lr" -eq 1 ]; then
       printf '<line x1="%d" y1="%d" x2="%d" y2="%d" stroke="%s" stroke-width="1"/>\n' "$pad" "$y" "$((pad+inner))" "$y" "$str"
       printf '<rect x="%d" y="%d" width="%d" height="31" fill="%s"/>\n' "$((pad+1))" "$((y+1))" "$((inner-2))" "$bgsub"
-      printf '<text x="%d" y="%d" class="m" font-size="11.5" font-weight="700" fill="%s">[03] 本地控制 API 存档 (--with-rules 已显式启用)</text>\n' "$((pad+18))" "$((y+21))" "$fgm"
+      printf '<text x="%d" y="%d" class="m" font-size="11.5" font-weight="700" fill="%s">[03] 本地控制接口存档 (--with-rules 已显式启用)</text>\n' "$((pad+18))" "$((y+21))" "$fgm"
       y=$((y + 34))
       while IFS='|' read -r lh lr lc; do
-        printf '<text x="%d" y="%d" class="m" font-size="11" fill="%s">%s</text>\n' "$((pad+18))" "$((y+16))" "$fg" "$(xml_esc "$lh")"
-        printf '<text x="%d" y="%d" class="m" font-size="11" fill="%s">%s</text>\n' "$((pad+290))" "$((y+16))" "$fgm" "$(xml_esc "$lr")"
-        printf '<text x="%d" y="%d" class="s" font-size="11" fill="%s">%s</text>\n' "$((pad+480))" "$((y+16))" "$cok" "$(xml_esc "$lc")"
+        printf '<text x="%d" y="%d" class="m" font-size="11" fill="%s">%s</text>\n' "$((pad+18))" "$((y+16))" "$fg" "$(xml_esc "$(pad_disp "$lh" 32 | sed 's/[[:space:]]*$//')")"
+        printf '<text x="%d" y="%d" class="m" font-size="11" fill="%s">%s</text>\n' "$((pad+290))" "$((y+16))" "$fgm" "$(xml_esc "$(pad_disp "$lr" 24 | sed 's/[[:space:]]*$//')")"
+        printf '<text x="%d" y="%d" class="s" font-size="11" fill="%s">%s</text>\n' "$((pad+480))" "$((y+16))" "$cok" "$(xml_esc "$(pad_disp "$lc" 42 | sed 's/[[:space:]]*$//')")"
         y=$((y + 24))
       done < "$LOCAL_RULES_FILE"
       y=$((y + 14))
     fi
 
     printf '<line x1="%d" y1="%d" x2="%d" y2="%d" stroke="%s" stroke-width="1"/>\n' "$pad" "$y" "$((pad+inner))" "$y" "$str"
-    printf '<text x="%d" y="%d" class="m" font-size="11" fill="%s">G-ROUTE · Tier 0 本地离线直出 · 零数据上传 · 不打欺诈分 · %s</text>\n' "$((pad+18))" "$((y+27))" "$fgm" "$( [ "$inc_lr" -eq 1 ] && echo '含个人存档策略链' || echo '已隐去本机节点名' )"
+    printf '<text x="%d" y="%d" class="m" font-size="11" fill="%s">G-ROUTE · 本地离线生成 · 无服务端存储 · %s</text>\n' "$((pad+18))" "$((y+27))" "$fgm" "$( [ "$inc_lr" -eq 1 ] && echo '含本机控制口存档' || echo '已隐去本机节点名' )"
     printf '<text x="%d" y="%d" class="m" font-size="11" text-anchor="end" fill="%s">IP: %s · %s</text>\n' "$((pad+inner-18))" "$((y+27))" "$fgf" "$(xml_esc "$P_IP")" "$V_TAG"
     printf '</svg>\n'
   } > "$out_path"
 
-  printf '%b[OK] 已本地离线生成矢量 SVG 体检卡: %s%b\n' "$C_GRN" "$out_path" "$C_RST"
+  printf '%b[OK] 已本地生成 SVG 报告: %s%b\n' "$C_GRN" "$out_path" "$C_RST"
 }
 
 encode_payload() {
@@ -1648,20 +1678,20 @@ if [ "$OPT_NO_LINK" -eq 0 ]; then
   PAYLOAD=$(encode_payload)
   case "$G_ROUTE_ORIGIN" in
     http://*|https://*)
-      printf '%bWeb 体检卡 & PNG 导出:%b\n%s/#r=%s\n' "$C_CYN" "$C_RST" "$G_ROUTE_ORIGIN" "$PAYLOAD" ;;
+      printf '%bWeb 报告链接:%b\n%s/#r=%s\n' "$C_CYN" "$C_RST" "$G_ROUTE_ORIGIN" "$PAYLOAD" ;;
     *)
-      printf '%b离线报告码 (粘贴到 G-ROUTE 网页渲染体检卡 / 双卡 Diff):%b\nG1:%s\n' "$C_CYN" "$C_RST" "$PAYLOAD" ;;
+      printf '%b离线报告码 (粘贴到 G-ROUTE 网页加载报告或对比):%b\nG1:%s\n' "$C_CYN" "$C_RST" "$PAYLOAD" ;;
   esac
 fi
-printf '%b注: 100%% 本地探测并离线编码，IP 已默认脱敏(-f 显示完整)，零数据上传。%b\n' "$C_DIM" "$C_RST"
+printf '%b注: 本地探测并离线编码，IP 已默认脱敏 (-f 显示完整)，无服务端存储。%b\n' "$C_DIM" "$C_RST"
 
 # ---------------------------------------------------------------------------
 # Post-Run Interactive Quick Actions (No Re-Probing Needed!)
 # ---------------------------------------------------------------------------
 if [ "$IS_INTERACTIVE" -eq 1 ] && [ "$OPT_NO_MENU" -eq 0 ] && [ "$OPT_QUICK" -eq 0 ]; then
   while true; do
-    local_opts="[S] 本地存 SVG"
-    if [ "$DID_INSPECT" -eq 0 ]; then local_opts="${local_opts}  [R] 补查本机代理分组"; fi
+    local_opts="[S] 导出 SVG"
+    if [ "$DID_INSPECT" -eq 0 ]; then local_opts="${local_opts}  [R] 查询本地控制口路由"; fi
     local_opts="${local_opts}  [Enter] 退出"
     printf '\n快捷操作: %s: ' "$local_opts" >/dev/tty
     IFS= read -r ACT </dev/tty || ACT=""
@@ -1673,6 +1703,7 @@ if [ "$IS_INTERACTIVE" -eq 1 ] && [ "$OPT_NO_MENU" -eq 0 ] && [ "$OPT_QUICK" -eq
         if [ "$DID_INSPECT" -eq 0 ]; then
           box_rule top
           run_local_controller_audit
+          compute_svc_exits
           box_rule bot
         fi ;;
       *) ;;

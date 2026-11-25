@@ -138,13 +138,16 @@ function parseIpv4(ip: string): readonly [number, number, number, number] | null
 function isPublicIpv4(ip: string): boolean {
   const octets = parseIpv4(ip);
   if (!octets) return false;
-  const [a, b] = octets;
+  const [a, b, c] = octets;
   if (a === 0 || a === 10 || a === 127) return false;
   if (a === 100 && b >= 64 && b <= 127) return false;
   if (a === 169 && b === 254) return false;
   if (a === 172 && b >= 16 && b <= 31) return false;
+  if (a === 192 && b === 0 && (c === 0 || c === 2)) return false;
   if (a === 192 && b === 168) return false;
   if (a === 198 && (b === 18 || b === 19)) return false;
+  if (a === 198 && b === 51 && c === 100) return false;
+  if (a === 203 && b === 0 && c === 113) return false;
   if (a >= 224) return false;
   return true;
 }
@@ -153,14 +156,17 @@ function isPublicIpv6(ip: string): boolean {
   if (!ip.includes(':') || ip.length > 45) return false;
   if (!/^[0-9a-fA-F:]+$/.test(ip)) return false;
   if (ip.split('::').length - 1 > 1) return false;
+  const segments = ip.split(':').filter((s) => s.length > 0);
+  if (segments.some((s) => s.length > 4)) return false;
   const lower = ip.toLowerCase();
-  if (lower === '::' || lower === '::1') return false;
+  if (lower === '::' || lower === '::1' || /^(0+:){1,7}0*1?$/.test(lower)) return false;
+  if (lower.startsWith('::ffff:') || lower.includes(':ffff:')) return false;
   if (lower.startsWith('fe8') || lower.startsWith('fe9') || lower.startsWith('fea') || lower.startsWith('feb')) {
     return false;
   }
   if (lower.startsWith('fc') || lower.startsWith('fd')) return false;
   if (lower.startsWith('ff')) return false;
-  if (lower.startsWith('2001:db8:')) return false;
+  if (/^2001:0?db8:/.test(lower)) return false;
   return true;
 }
 
@@ -182,7 +188,7 @@ function classifyIpKind(org: string | null, asn: number | null): IpKind {
   }
 
   if (
-    /kirino|misaka|xtom|frantech|buyvm|sharktech|psychz|cogent|arelion|telia|gtt|zayo|nearoute|akari|kurun|ceranetworks|equinix|multacom|quadranet|serverius|gcore|hyonix|spartan|greencloud|clovux|dedipath|hosthatch|virmach|webhorizon|amazon|aws|google cloud|microsoft|azure|digitalocean|vultr|choopa|hetzner|ovh|linode|oracle|alibaba|aliyun|tencent|datacamp|m247|racknerd|it7|bandwagon|zenlayer|leaseweb|scaleway|contabo|upcloud|kamatera|colocrossing|dmit|host|server|cloud|vps|datacenter|data center/.test(
+    /amazon|aws|google cloud|microsoft|azure|digitalocean|vultr|choopa|hetzner|ovh|linode|oracle|alibaba|aliyun|tencent|datacamp|m247|zenlayer|leaseweb|scaleway|contabo|upcloud|equinix|cogent|arelion|telia|gtt|zayo|host|server|cloud|vps|datacenter|data center|compute|colo/.test(
       lower,
     )
   ) {
@@ -208,7 +214,7 @@ async function fetchJsonWithTimeout(url: string, timeoutMs: number): Promise<unk
       signal: controller.signal,
       headers: {
         accept: 'application/json',
-        'user-agent': 'g-route-diag/2.0 (stateless-worker)',
+        'user-agent': 'g-route-diag/3.1 (stateless-worker)',
       },
     });
     if (!res.ok) return null;
@@ -458,12 +464,14 @@ export default {
   async fetch(request: Request, env: Env): Promise<Response> {
     const url = new URL(request.url);
 
-    if ((url.pathname === '/sh' || url.pathname === '/check.sh') && request.method === 'GET') {
-      return handleScript(request, env, 'sh');
+    if ((url.pathname === '/sh' || url.pathname === '/check.sh') && (request.method === 'GET' || request.method === 'HEAD')) {
+      const res = await handleScript(request, env, 'sh');
+      return request.method === 'HEAD' ? new Response(null, { status: res.status, headers: res.headers }) : res;
     }
 
-    if ((url.pathname === '/ps' || url.pathname === '/check.ps1') && request.method === 'GET') {
-      return handleScript(request, env, 'ps');
+    if ((url.pathname === '/ps' || url.pathname === '/check.ps1') && (request.method === 'GET' || request.method === 'HEAD')) {
+      const res = await handleScript(request, env, 'ps');
+      return request.method === 'HEAD' ? new Response(null, { status: res.status, headers: res.headers }) : res;
     }
 
     if (url.pathname === '/api/baseline' && request.method === 'GET') {
@@ -478,6 +486,14 @@ export default {
       return jsonResponse({ error: 'Not found' }, 404);
     }
 
-    return env.ASSETS.fetch(request);
+    const assetRes = await env.ASSETS.fetch(request);
+    const secHeaders = new Headers(assetRes.headers);
+    secHeaders.set('referrer-policy', 'no-referrer');
+    secHeaders.set('x-frame-options', 'DENY');
+    return new Response(assetRes.body, {
+      status: assetRes.status,
+      statusText: assetRes.statusText,
+      headers: secHeaders,
+    });
   },
 } satisfies ExportedHandler<Env>;

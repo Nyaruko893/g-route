@@ -50,7 +50,7 @@
       return `iwr ${origin}/ps -OutFile g-route.ps1; notepad g-route.ps1; .\\g-route.ps1 -Svg -NoLink`;
     }
     if (cmdMode === 'controller') {
-      return `$env:G_ROUTE_INSPECT='1'; irm ${origin}/ps | iex`;
+      return `try { $env:G_ROUTE_INSPECT='1'; irm ${origin}/ps | iex } finally { Remove-Item Env:G_ROUTE_INSPECT -EA SilentlyContinue }`;
     }
     if (cmdMode === 'dryrun') {
       return `iwr ${origin}/ps -OutFile g-route.ps1; .\\g-route.ps1 -DryRun`;
@@ -60,19 +60,19 @@
 
   const modeHint = $derived.by(() => {
     if (cmdMode === 'audit') {
-      return '纯离线无网页闭环：先落盘逐行审阅，跑完直接本地生成高清 SVG 体检卡（Windows 还可加 -Png 直出本地 PNG），不生成网页链接。';
+      return '下载脚本到本地审阅后运行，直接在本地生成 SVG 报告（Windows 可加 -Png 导出 PNG），不输出网页链接。';
     }
     if (cmdMode === 'controller') {
       return osTab === 'win'
-        ? '白名单自动发现本机 Clash Verge Rev / Mihomo Party / sing-box 管道或端口（免背管道名，遇 401 现场提示密钥）；仅本屏只读审计 15 域规则一致性，绝不写入 #r= 或默认 SVG。'
-        : '白名单自动发现 Unix Socket（Verge / Mihomo Party）或 127.0.0.1:9090/9097；仅本屏只读审计 15 域规则一致性，绝不写入 #r= 或默认 SVG。';
+        ? '只读查询本机 127.0.0.1 或本地命名管道控制接口，核对 16 个关键域名的出站路由链一致性（仅本屏显示，不写入 #r= 或默认 SVG）。'
+        : '只读查询本机 Unix Socket 或 127.0.0.1 控制接口，核对 16 个关键域名的出站路由链一致性（仅本屏显示，不写入 #r= 或默认 SVG）。';
     }
     if (cmdMode === 'dryrun') {
-      return '零发包安全审计：打印全部 6 桶分流雷达与 Google 6 路只读域名、权限边界后立即退出，不发出任何数据包。';
+      return '仅打印将访问的只读探测域名与执行边界并退出，不发起任何网络请求。';
     }
     return osTab === 'unix'
-      ? '无参数直跑会展示 1 屏交互入口（回车即跑纯黑盒，跑完可按 S 存本地 SVG / 按 R 补查代理分组）；脚本自动化可加 --quick / --svg / -j。'
-      : '无参数直跑会展示 1 屏交互入口（回车即跑纯黑盒，跑完可按 S 存 SVG / P 存本地 PNG / R 补查代理分组）；直通参数可用 -Quick / -Inspect / -Svg / -Png。';
+      ? '在终端运行交互菜单或加 --quick 直接执行；运行后可按 S 导出本地 SVG，或按 R 查询本地控制接口路由。'
+      : '在终端运行交互菜单或加 -Quick 直接执行；运行后可按 S 导出 SVG、P 导出本地 PNG，或按 R 查询本地控制接口路由。';
   });
 
   const sourceLineCount = $derived(sourceText ? sourceText.split('\n').length : 0);
@@ -170,12 +170,12 @@
   }
 </script>
 
-<section class="launch-grid" aria-label="CLI 深度体检启动台">
+<section class="launch-grid" aria-label="CLI 诊断入口">
   <div class="launch-main">
     <div class="panel-head">
       <div>
-        <div class="mono kicker">STEP 01 // 真值 CLI 一键体检（绕过浏览器 CORS 限制）</div>
-        <h2 class="panel-title">在 VPS 或本机终端运行，6 路实测 Google 真实归属与双出口分流</h2>
+        <div class="mono kicker">STEP 01 // 终端 CLI 诊断</div>
+        <h2 class="panel-title">在目标主机或本地终端执行，检测出口路由拓扑与 Google 服务地区归属</h2>
       </div>
       <div class="tabs" role="tablist">
         <button
@@ -197,10 +197,10 @@
 
     <div class="mode-row">
       {#each [
-        { id: 'fast', label: '交互全局入口' },
-        { id: 'controller', label: '+ 自动透视代理分组' },
-        { id: 'audit', label: '纯离线直出 SVG (免网页)' },
-        { id: 'dryrun', label: '零发包审计 (--dry-run)' },
+        { id: 'fast', label: '默认模式' },
+        { id: 'controller', label: '含本地控制口 (--inspect)' },
+        { id: 'audit', label: '离线导出 SVG (--svg)' },
+        { id: 'dryrun', label: '请求清单 (--dry-run)' },
       ] as m (m.id)}
         <button
           type="button"
@@ -223,8 +223,8 @@
 
     <div class="trust-bar">
       <div class="trust-summary mono">
-        <span class="tag tag-ok">[零越权契约]</span>
-        <span>不提权 · 不读磁盘配置/订阅 · 不上传结果 · 全程明文可审</span>
+        <span class="tag tag-ok">[只读模式]</span>
+        <span>无特权要求 · 不读取本地配置文件 · 结果本地编码</span>
       </div>
       <div class="trust-actions">
         <button
@@ -277,24 +277,24 @@
       <div class="audit-drawer">
         <div class="contract-grid">
           <div>
-            <div class="mono contract-h">4 个绝不（默认纯黑盒）</div>
+            <div class="mono contract-h">安全与隐私边界</div>
             <ul class="contract-list">
-              <li>绝不请求管理员 / UAC / <code>sudo</code> 提权。</li>
-              <li>绝不读取磁盘配置（<code>%APPDATA%</code> 代理订阅、<code>~/.ssh</code>、浏览器 Cookie）。</li>
-              <li>绝不向任何后端上传检测数据（<code>#r=</code> 100% 本地离线压缩编码，IP 默认脱敏）。</li>
-              <li>绝不下载二进制或执行混淆密文；仅在用户显式传 <code>-Controller</code> 时只读查本机 <code>/connections</code> 且不入分享链。</li>
+              <li>不请求管理员 / UAC / <code>sudo</code> 权限。</li>
+              <li>不读取磁盘配置文件（应用配置、<code>~/.ssh</code>、浏览器 Cookie）。</li>
+              <li>不向后端上传诊断数据（<code>#r=</code> 本地压缩编码，IP 默认脱敏）。</li>
+              <li>不下载二进制文件；仅在显式启用 <code>--inspect</code> / <code>-Inspect</code> 或 <code>--controller</code> 时只读查询本机 <code>/connections</code>，结果不写入分享链接。</li>
             </ul>
           </div>
           <div>
             <div class="mono contract-h">全部只读 HTTPS 请求目标</div>
             <ul class="contract-list mono">
-              <li>v4/v6.ident.me (备选 ipify) · 通用海外出口 ASN</li>
-              <li>myip.ipip.net · 国内直连参照与绕行检测</li>
-              <li>redirector.googlevideo.com · GGC 边缘与 Google 实见 IP</li>
-              <li>cloudflare.com / chatgpt.com / claude.ai (/cdn-cgi/trace) · 跨 AI 分流与 WARP</li>
-              <li>ipwho.is · 仅对去重后的新增非 WARP 出口查一次 ASN</li>
-              <li>gspe1-ssl.ls.apple.com/pep/gcc · Apple 第三方对照</li>
-              <li>gemini / notebooklm / youtube / play / google / policies</li>
+              <li>v4/v6.ident.me (备选 ipify) · 默认出站 IP 与 ASN</li>
+              <li>myip.ipip.net · 国内直连参照点</li>
+              <li>redirector.googlevideo.com · GGC 边缘与 Google 侧出口 IP</li>
+              <li>cloudflare.com / chatgpt.com / claude.ai (/cdn-cgi/trace) · 多服务出口对照</li>
+              <li>ipwho.is · 对新增独立非 WARP 出口查询一次 ASN</li>
+              <li>gspe1-ssl.ls.apple.com/pep/gcc · Apple 地区对照</li>
+              <li>gemini / notebooklm / youtube / play / searchdomaincheck / policies</li>
             </ul>
           </div>
         </div>
@@ -303,7 +303,7 @@
 
     <div class="import-box">
       <div class="import-head">
-        <span class="mono kicker">STEP 02 // 离线解码渲染体检卡（或直接打开 CLI 底部生成的 #r= 链接）</span>
+        <span class="mono kicker">STEP 02 // 导入诊断报告（或直接访问 CLI 输出的 #r= 链接）</span>
       </div>
       <div class="import-row">
         <input
@@ -316,7 +316,7 @@
           }}
         />
         <button type="button" class="btn" disabled={decoding} onclick={() => void handleDecode()}>
-          {decoding ? '[解码中...]' : '[渲染体检卡]'}
+          {decoding ? '[解析中...]' : '[加载报告]'}
         </button>
       </div>
       {#if parseError}
@@ -325,10 +325,10 @@
     </div>
   </div>
 
-  <aside class="sample-col" aria-label="实测样本预览">
+  <aside class="sample-col" aria-label="示例报告">
     <div class="sample-head">
-      <span class="mono kicker">PREVIEW // 真实脱敏样本</span>
-      <div class="sample-sub">点击 1 秒预览体检卡与 PNG 导出效果</div>
+      <span class="mono kicker">EXAMPLES // 示例报告</span>
+      <div class="sample-sub">点击查看不同网络拓扑下的诊断结果示例</div>
     </div>
 
     <div class="sample-list">
@@ -340,7 +340,7 @@
         >
           <div class="sample-top">
             <span class={`tag tag-${item.tone}`}>[{item.tag}]</span>
-            <span class="mono sample-arrow">查看体检卡 →</span>
+            <span class="mono sample-arrow">查看报告 →</span>
           </div>
           <div class="sample-name">{item.shortName}</div>
           <div class="sample-meta mono">

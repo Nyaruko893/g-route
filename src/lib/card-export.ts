@@ -184,12 +184,12 @@ export async function renderReportCardPngBlob(
 
   ctx.fillStyle = p.fg;
   ctx.font = `600 15px ${FONT_MONO}`;
-  ctx.fillText('G-ROUTE // GOOGLE 生态送中与分流体检卡', PAD + 20, y + 27);
+  ctx.fillText('G-ROUTE // 出口归属与服务可达性报告', PAD + 20, y + 27);
 
   const ts = new Date(report.t * 1000).toISOString().replace('T', ' ').slice(0, 16) + ' UTC';
-  const metaRight = `${diag.transportLabel}  ·  ${ts}`;
   ctx.fillStyle = p.fgMuted;
   ctx.font = `500 12px ${FONT_MONO}`;
+  const metaRight = truncateText(ctx, `${diag.transportLabel}  ·  ${ts}`, INNER - 380);
   const metaW = ctx.measureText(metaRight).width;
   ctx.fillText(metaRight, PAD + INNER - 20 - metaW, y + 27);
 
@@ -265,9 +265,9 @@ export async function renderReportCardPngBlob(
     : `${diag.defaultEgress.org} [${diag.defaultEgress.kindLabel}]`;
   const cells = [
     {
-      k: diag.googleEgress ? '双出口归属（通用 → Google）' : '出口节点 / ASN',
+      k: diag.googleEgress ? '双出口归属（默认 → Google）' : '出口 IP / ASN',
       v: `${diag.defaultEgress.ip} · AS${diag.defaultEgress.asn ?? '?'}`,
-      sub: truncateText(ctx, egressSub, (colWidths[0] ?? 320) - 24),
+      sub: egressSub,
       tone: 'muted' as CellTone,
     },
     {
@@ -277,7 +277,7 @@ export async function renderReportCardPngBlob(
       tone: 'muted' as CellTone,
     },
     {
-      k: 'Apple 第三方对照',
+      k: 'Apple 地区对照',
       v: report.ap ?? '--',
       sub: 'pep/gcc',
       tone: 'muted' as CellTone,
@@ -285,7 +285,7 @@ export async function renderReportCardPngBlob(
     {
       k: 'Google 实测归属',
       v: diag.googleGeoLabel,
-      sub: diag.googleOnlyDrift ? '私有库独立送中' : '6 路真值汇总',
+      sub: diag.googleOnlyDrift ? 'Google 独立判定受限' : '6 项探测汇总',
       tone: diag.tier === 'drift' ? ('leak' as CellTone) : diag.tier === 'partial' ? ('diff' as CellTone) : ('ok' as CellTone),
     },
   ];
@@ -328,7 +328,7 @@ export async function renderReportCardPngBlob(
     ctx.fillStyle = p.fgMuted;
     ctx.font = `600 11px ${FONT_MONO}`;
     const ovCnt = diag.routeClusters.filter((c) => !c.isCnDirect).length;
-    ctx.fillText(`[01] 6 桶分流拓扑雷达 · 自动聚类 (${ovCnt} 路海外出口)`, PAD + 20, y + 17);
+    ctx.fillText(`[01] 出口路由拓扑 (${ovCnt} 个非直连出口)`, PAD + 20, y + 17);
     const rttHdrW = ctx.measureText('RTT').width;
     ctx.fillStyle = p.fgFaint;
     ctx.fillText('RTT', PAD + INNER - 20 - rttHdrW, y + 17);
@@ -397,8 +397,8 @@ export async function renderReportCardPngBlob(
     ctx.fillText(`IPv6 (${report.v6?.ip ?? ''})`, PAD + 565, y + 17);
   } else {
     const st = report.v4 ? 'IPv4' : 'IPv6';
-    ctx.fillText(`实测结论 · ${st}`, PAD + 280, y + 17);
-    ctx.fillText('实测出口与真值细节', PAD + 505, y + 17);
+    ctx.fillText(`探测状态 · ${st}`, PAD + 280, y + 17);
+    ctx.fillText('出口槽位与响应详情', PAD + 505, y + 17);
   }
 
   y += TH_H;
@@ -489,7 +489,7 @@ export async function renderReportCardPngBlob(
   const footY = y + (H - PAD - y) / 2;
   ctx.fillStyle = p.fgMuted;
   ctx.font = `500 11px ${FONT_MONO}`;
-  ctx.fillText('G-ROUTE · 无状态零落库 · 不打欺诈分 · 纯本地实测生成', PAD + 20, footY);
+  ctx.fillText('G-ROUTE · 本地离线生成 · 无服务端存储', PAD + 20, footY);
 
   const rightStamp = `IP: ${primary?.ip ?? '--'} · ${diag.tierCode}`;
   const rw = ctx.measureText(rightStamp).width;

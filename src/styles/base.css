@@ -48,11 +48,6 @@
     font-variant-numeric: tabular-nums;
   }
 
-  .num {
-    font-family: var(--font-mono);
-    font-variant-numeric: tabular-nums;
-  }
-
   /* Strict industrial button: 1px hairline, 0px radius, 0ms instant click state */
   .btn {
     display: inline-flex;
@@ -129,59 +124,6 @@
     color: var(--fg-muted);
     background: var(--bg-subtle);
     border-color: var(--rule);
-  }
-
-  /* Section header rhythm: 2px top bar + numbered mono code */
-  .sec {
-    border-top: 2px solid var(--rule-strong);
-    padding-top: var(--space-3);
-    margin-top: var(--space-6);
-  }
-
-  .sec-head {
-    display: flex;
-    flex-wrap: wrap;
-    align-items: baseline;
-    justify-content: space-between;
-    gap: var(--space-2);
-    margin-bottom: var(--space-3);
-  }
-
-  .sec-title {
-    margin: 0;
-    font-size: 15px;
-    font-weight: 600;
-    letter-spacing: -0.01em;
-    display: flex;
-    align-items: baseline;
-    gap: 0.55rem;
-  }
-
-  .sec-code {
-    font-family: var(--font-mono);
-    font-size: 11px;
-    font-weight: 600;
-    color: var(--fg-muted);
-  }
-
-  .sec-note {
-    margin: 0 0 var(--space-3) 0;
-    color: var(--fg-muted);
-    font-size: 13px;
-    max-width: 74ch;
-  }
-
-  .code-box {
-    margin: 0;
-    padding: var(--space-3);
-    background: var(--bg-inset);
-    border: 1px solid var(--rule);
-    font-family: var(--font-mono);
-    font-size: 12px;
-    line-height: 1.55;
-    overflow-x: auto;
-    white-space: pre-wrap;
-    word-break: break-all;
   }
 
   :focus-visible {

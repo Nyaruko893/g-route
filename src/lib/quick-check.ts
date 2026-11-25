@@ -47,13 +47,6 @@ export interface QuickCheckSummary {
   readonly dualStackMismatch: boolean;
 }
 
-export interface DeviceEnvironment {
-  readonly isMobile: boolean;
-  readonly isAndroid: boolean;
-  readonly platformLabel: string;
-  readonly romHint: string | null;
-}
-
 async function fetchWithTimeout(
   url: string,
   init: RequestInit,
@@ -375,13 +368,13 @@ export function evaluateQuickCheck(params: {
       topologyLabel = `双栈跨国 (${v4Cc} vs ${v6Cc})`;
       topologyTone = 'leak';
     } else if (domestic.isChinaIp === true && v4.ip && !sameIpv4Prefix24(domestic.ip ?? '', v4.ip)) {
-      topologyLabel = '规则分流（国内直连 + 海外代理）';
+      topologyLabel = '分流路由（CN 直连 + 非 CN 出站）';
       topologyTone = 'ok';
     } else if (domestic.isChinaIp === false && v4.ip) {
-      topologyLabel = '全局代理 / 纯海外环境';
+      topologyLabel = '单一非 CN 出站';
       topologyTone = 'ok';
     } else {
-      topologyLabel = v4.ip ? `海外出口 ${v4Cc ?? ''}`.trim() : '等待探测';
+      topologyLabel = v4.ip ? `出站地区 ${v4Cc ?? ''}`.trim() : '等待探测';
       topologyTone = 'ok';
     }
   }
@@ -406,8 +399,8 @@ export function evaluateQuickCheck(params: {
     return {
       topologyLabel,
       topologyTone,
-      udpLabel: 'UDP 未反射（安全）',
-      udpDetail: '无 WebRTC 漏本地 IP 风险，QUIC 自动回退 TCP',
+      udpLabel: 'UDP 未反射',
+      udpDetail: '未返回公网 STUN 反射地址，连接将使用 TCP',
       udpTone: 'ok',
       isUdpDomesticLeak: false,
       dualStackMismatch,
@@ -434,8 +427,8 @@ export function evaluateQuickCheck(params: {
     return {
       topologyLabel,
       topologyTone,
-      udpLabel: 'UDP 漏回国内直连',
-      udpDetail: `${gIsCn ? 'Google STUN' : 'CF STUN'} 反射出中国大陆 IP (${maskDisplayIp(gIsCn ? gIp : cfIp)})，QUIC 极易引发送中`,
+      udpLabel: 'UDP 与 HTTP 出口不一致',
+      udpDetail: `${gIsCn ? 'Google STUN' : 'CF STUN'} 反射地址为中国大陆 IP (${maskDisplayIp(gIsCn ? gIp : cfIp)})，与 HTTP 出站路径不一致`,
       udpTone: 'leak',
       isUdpDomesticLeak: true,
       dualStackMismatch,
@@ -448,8 +441,8 @@ export function evaluateQuickCheck(params: {
     return {
       topologyLabel,
       topologyTone,
-      udpLabel: `Google UDP 独立出口 (${g.primaryMeta?.country ?? '海外'})`,
-      udpDetail: `stun.l.google.com 走 ${maskDisplayIp(gIp)}，与默认海外不同（已分流）`,
+      udpLabel: `Google UDP 独立出口 (${g.primaryMeta?.country ?? '非 CN'})`,
+      udpDetail: `stun.l.google.com 经 ${maskDisplayIp(gIp)}，与默认 HTTP 出站不同`,
       udpTone: 'diff',
       isUdpDomesticLeak: false,
       dualStackMismatch,
@@ -460,92 +453,9 @@ export function evaluateQuickCheck(params: {
     topologyLabel,
     topologyTone,
     udpLabel: 'TCP / UDP 出口一致',
-    udpDetail: `Google STUN 反射 ${maskDisplayIp(gIp ?? cfIp)}，无直连泄露`,
+    udpDetail: `Google STUN 反射 ${maskDisplayIp(gIp ?? cfIp)}`,
     udpTone: 'ok',
     isUdpDomesticLeak: false,
     dualStackMismatch,
   };
 }
-
-interface NavigatorUADataLike {
-  readonly mobile?: boolean;
-  readonly platform?: string;
-}
-
-export function collectDeviceEnvironment(): DeviceEnvironment {
-  const ua = navigator.userAgent;
-  const uaData = (navigator as Navigator & { userAgentData?: NavigatorUADataLike }).userAgentData;
-  const isAndroid = /Android/i.test(ua) || uaData?.platform === 'Android';
-  const isIos = /iPhone|iPad|iPod/i.test(ua) || uaData?.platform === 'iOS';
-  const isMobile = Boolean(uaData?.mobile) || isAndroid || isIos || /Mobile/i.test(ua);
-
-  let romHint: string | null = null;
-  if (/HarmonyOS|HMSCore/i.test(ua)) romHint = 'HarmonyOS / 华为系';
-  else if (/XiaoMi|MiuiBrowser|Redmi|HyperOS|MIUI/i.test(ua)) romHint = 'HyperOS / MIUI';
-  else if (/HeyTapBrowser|OPPO|ColorOS|Realme|OnePlus/i.test(ua)) romHint = 'ColorOS / 一加 / 真我';
-  else if (/VivoBrowser|vivo|iQOO|OriginOS/i.test(ua)) romHint = 'OriginOS / vivo';
-  else if (/Honor|MagicOS|HUAWEI/i.test(ua)) romHint = 'MagicOS / 荣耀';
-
-  const platformLabel =
-    uaData?.platform ||
-    (isAndroid
-      ? 'Android'
-      : isIos
-        ? 'iOS'
-        : /Windows/i.test(ua)
-          ? 'Windows'
-          : /Mac OS X/i.test(ua)
-            ? 'macOS'
-            : 'Linux');
-
-  return { isMobile, isAndroid, platformLabel, romHint };
-}
-
-interface GmsChecklistItem {
-  readonly id: string;
-  readonly label: string;
-  readonly detail: string;
-}
-
-export const GMS_CHECKLIST_ITEMS: readonly GmsChecklistItem[] = [
-  {
-    id: 'google_cn_direct',
-    label: '代理规则开启了 GoogleCN / geosite:google-cn 直连',
-    detail: 'services.googleapis.cn、connectivitycheck.gstatic.com、dl.google.com 走国内直连，会持续把真实本地 IP 喂给 Google。',
-  },
-  {
-    id: 'android_location_accuracy',
-    label: '安卓手机开启了 Google 定位精确度（Wi-Fi / 蓝牙扫描）或位置时间轴',
-    detail: '即使全程挂美区代理，GMS 仍会在 gls.googleapis.com 内上报周边大陆 Wi-Fi BSSID 与基站，同时拖累账号和自持 VPS IP 送中。',
-  },
-  {
-    id: 'rom_dual_wlan_sla',
-    label: '国产安卓 ROM 开启了“双 WLAN / 5G 并发加速 (SLA)”或无 VPN 锁定断流',
-    detail: 'HyperOS / ColorOS / OriginOS 双通道加速会直接绑蜂窝网卡绕过 VpnService TUN。',
-  },
-  {
-    id: 'per_app_missed_gms',
-    label: '分应用代理漏勾 GMS/GSF，或锁屏杀后台导致 FCM (mtalk) 直连',
-    detail: '白名单漏掉 com.google.android.gms / gsf，或代理被杀后高保活 GMS 立刻裸连重连 mtalk.google.com。',
-  },
-  {
-    id: 'cross_device_contagion',
-    label: '同一账号登在其它设备（iPhone Jetsam 杀后台 / 备用机 / 公司电脑）',
-    detail: '归属地按 GAIA 账号跨设备聚合：iOS 50MB 内存上限杀代理后 APNs 唤醒 Gmail/YouTube 直连，照样拖垮全端。',
-  },
-  {
-    id: 'url_test_or_ide_leak',
-    label: '策略组开着 url-test 跨国跳变，或 IDE/CLI 子进程未走 TUN',
-    detail: '频繁在美/日/港之间跳节点会放大验证；Antigravity / CLI 后台进程非 TUN 下极易裸连。',
-  },
-  {
-    id: 'payments_family_phone',
-    label: '加入了异区家庭组或仅绑定 +86 手机号（无海外号/Passkey 备选）',
-    detail: '家庭组强制全员同区锁死改区；+86 本身不导致送中，但风控复核遇短码拦截易死锁。',
-  },
-  {
-    id: 'terms_already_cn_hk',
-    label: '登录态打开 policies.google.com/terms 已显示中国大陆 / 香港',
-    detail: '说明账号法律归属地已被绑定受限区，单纯换节点无法立刻恢复，须先全端堵漏 24~48h 再提交改区申诉。',
-  },
-] as const;

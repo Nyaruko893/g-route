@@ -40,11 +40,11 @@
   }
 </script>
 
-<section class="diff-card" aria-label="双卡并排对比">
+<section class="diff-card" aria-label="报告对比">
   <header class="diff-head">
     <div class="diff-title-col">
-      <span class="mono diff-kicker">DIFF // 双卡并排对比（检出 {diffCount} 项差异）</span>
-      <span class="diff-sub">用于横向比对不同 VPS 节点，或比对规则修改前后的变化</span>
+      <span class="mono diff-kicker">DIFF // 报告并排对比（检出 {diffCount} 项差异）</span>
+      <span class="diff-sub">横向对比两份诊断报告的出口归属与服务可达性差异</span>
     </div>
     <button type="button" class="btn btn-subtle btn-xs" onclick={onClose}>
       [退出对比]

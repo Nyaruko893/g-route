@@ -46,13 +46,13 @@ const StackRttV1Schema = z.object({
 });
 
 const StackExitMapV1Schema = z.object({
-  gem: optStr(48),
-  nlm: optStr(48),
-  yt: optStr(48),
-  cdn: optStr(48),
-  play: optStr(48),
-  srch: optStr(48),
-  trm: optStr(48),
+  gem: optStr(80),
+  nlm: optStr(80),
+  yt: optStr(80),
+  cdn: optStr(80),
+  play: optStr(80),
+  srch: optStr(80),
+  trm: optStr(80),
 });
 
 export const StackProbeV1Schema = z.object({
@@ -100,7 +100,6 @@ export const CliReportV1Schema = z.object({
   net: NetTransportV1Schema.optional(),
   rt: RouteTopologyV1Schema.optional(),
   al: z.array(z.string().max(48)).max(12).optional(),
-  att: z.record(z.string(), z.unknown()).optional(),
   v4: StackProbeV1Schema.optional(),
   v6: StackProbeV1Schema.optional(),
   lbl: optStr(64),

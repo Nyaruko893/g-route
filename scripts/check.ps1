@@ -345,32 +345,32 @@ $passiveTunNic = Get-PassiveTunNic
 
 function Show-DryRunAudit {
   Write-BoxRule "top"
-  Write-BoxLine "G-ROUTE v3 // -DryRun 零发包安全审计清单 (未发送任何网络请求)" "Cyan"
+  Write-BoxLine "G-ROUTE v3 // -DryRun 请求清单与执行边界 (未发送任何网络请求)" "Cyan"
   Write-BoxRule "mid"
-  Write-BoxLine "[权限边界 · 4 个绝不]" "Yellow"
-  Write-BoxLine "  1. 绝不申请 UAC / 管理员提权" "Gray"
-  Write-BoxLine "  2. 绝不读取磁盘配置文件 (%APPDATA% 订阅、~/.ssh、Cookie) 或扫描进程" "Gray"
-  Write-BoxLine "  3. 绝不向任何服务器上传检测结果 (#r= 与 SVG/PNG 均 100% 本地生成)" "Gray"
-  Write-BoxLine "  4. 绝不下载二进制文件或执行远程混淆代码" "Gray"
+  Write-BoxLine "[执行边界 · 只读模式]" "Yellow"
+  Write-BoxLine "  1. 不申请 UAC / 管理员提权" "Gray"
+  Write-BoxLine "  2. 不读取磁盘配置文件 (应用配置、~/.ssh、Cookie) 或扫描进程" "Gray"
+  Write-BoxLine "  3. 不向服务端上传诊断结果 (#r= 与 SVG/PNG 均在本地生成)" "Gray"
+  Write-BoxLine "  4. 不下载二进制文件或执行混淆代码" "Gray"
   Write-BoxRule "mid"
-  Write-BoxLine "[将发起的只读 HTTPS GET/HEAD 请求 · 6 桶分流雷达 + Google 6 路]" "Yellow"
-  Write-BoxLine "  - myip.ipip.net (备选 cip.cc)              国内直连参照与绕行检测" "Gray"
-  Write-BoxLine "  - v4/v6.ident.me/json (备选 ipify)         双栈通用海外出口 ASN" "Gray"
-  Write-BoxLine "  - redirector.googlevideo.com/report_mapping Google/YT GGC 与实见 IP" "Gray"
+  Write-BoxLine "[将发起的只读 HTTPS GET/HEAD 请求 · 路由拓扑 + Google 6 项]" "Yellow"
+  Write-BoxLine "  - myip.ipip.net                            国内直连参照点" "Gray"
+  Write-BoxLine "  - v4/v6.ident.me/json (备选 ipify)         双栈默认出站 IP 与 ASN" "Gray"
+  Write-BoxLine "  - redirector.googlevideo.com/report_mapping Google/YT GGC 与出口 IP" "Gray"
   Write-BoxLine "  - www.cloudflare.com/cdn-cgi/trace         Cloudflare 出口 / WARP / colo" "Gray"
-  Write-BoxLine "  - chatgpt.com/cdn-cgi/trace                OpenAI 实见出口 / WARP / colo" "Gray"
-  Write-BoxLine "  - claude.ai/cdn-cgi/trace               Anthropic 实见出口 / WARP / colo" "Gray"
-  Write-BoxLine "  - ipwho.is/<split_ip>                   仅对去重后的新增非 WARP 出口查 ASN" "Gray"
-  Write-BoxLine "  - gspe1-ssl.ls.apple.com/pep/gcc           Apple 第三方地域对照" "Gray"
+  Write-BoxLine "  - chatgpt.com/cdn-cgi/trace                OpenAI 侧出口 / WARP / colo" "Gray"
+  Write-BoxLine "  - claude.ai/cdn-cgi/trace                  Anthropic 侧出口 / WARP / colo" "Gray"
+  Write-BoxLine "  - ipwho.is/<split_ip>                      仅对去重后的新增非 WARP 出口查 ASN" "Gray"
+  Write-BoxLine "  - gspe1-ssl.ls.apple.com/pep/gcc           Apple 地区对照" "Gray"
   Write-BoxLine "  - gemini / notebooklm / youtube / play / searchdomaincheck / policies" "Gray"
-  Write-BoxLine ("  - 主动 SERP 爬取 (-ProbeSearch): {0}" -f $(if ($ProbeSearch) { "开启 (主动探测 /search，注意防频控)" } else { "默认关闭 (防自伤保护，仅查 searchdomaincheck)" })) "Gray"
+  Write-BoxLine ("  - 主动 SERP 探测 (-ProbeSearch): {0}" -f $(if ($ProbeSearch) { "开启 (主动请求 /search，注意频控)" } else { "默认关闭 (仅请求 searchdomaincheck，避免触发频控)" })) "Gray"
   Write-BoxRule "mid"
   Write-BoxLine "[当前会话被动识别]" "Yellow"
-  Write-BoxLine ("  - IP 脱敏: {0}" -f $(if ($Full) { "关闭 (-Full 完整显示)" } else { "开启 (默认 38.59.*.*)" })) "Gray"
-  Write-BoxLine ("  - 显式/系统代理: {0}" -f $(if ($effectiveProxy) { $effectiveProxy } else { "无" })) "Gray"
+  Write-BoxLine ("  - IP 脱敏: {0}" -f $(if ($Full) { "关闭 (-Full 完整显示)" } else { "开启 (默认 198.51.*.*)" })) "Gray"
+  Write-BoxLine ("  - 显式/系统代理: {0}" -f $(if ($effectiveProxy) { ($effectiveProxy -replace "^[a-zA-Z0-9+.-]+://", "" -replace "^[^@/]+@", "") } else { "无" })) "Gray"
   Write-BoxLine ("  - 只读虚拟网卡提示: {0}" -f $(if ($passiveTunNic) { $passiveTunNic } else { "未检测到活跃 TUN 网卡" })) "Gray"
-  $ctrlHint = if ($Controller) { "$Controller (仅本屏只读，绝不入分享链)" } elseif ($Inspect) { "白名单自动发现 (仅本屏只读，绝不入分享链)" } else { "关闭 (纯黑盒模式，零本机端口/管道探测)" }
-  Write-BoxLine ("  - 本地控制 API: {0}" -f $ctrlHint) "Gray"
+  $ctrlHint = if ($Controller) { "$Controller (仅本屏只读，不写入分享链)" } elseif ($Inspect) { "只读查询本地控制口 (仅本屏显示，不写入分享链)" } else { "关闭 (不探测本地控制端口/管道)" }
+  Write-BoxLine ("  - 本地控制接口: {0}" -f $ctrlHint) "Gray"
   Write-BoxRule "bot"
 }
 
@@ -391,13 +391,13 @@ if (-not $hasExplicitFlags -and $isInteractiveTty -and -not $NoMenu) {
   while ($true) {
     $envSummary = if ($passiveTunNic) { "检测到活跃虚拟网卡 [$passiveTunNic]" } elseif ($hasExplicitProxy) { "检测到系统代理 [$effectiveProxy]" } else { "未检测到系统代理/TUN" }
     Write-BoxRule "top"
-    Write-BoxLine "G-ROUTE v3 // Google 生态送中与全链路分流体检仪" "Cyan"
-    Write-BoxLine ("零提权 · 零读磁盘配置 · 零数据上传  |  {0}" -f $envSummary) "DarkGray"
+    Write-BoxLine "G-ROUTE v3 // Google 连通性与路由归属诊断工具" "Cyan"
+    Write-BoxLine ("只读模式 · 不读取本地配置 · 结果本地编码  |  {0}" -f $envSummary) "DarkGray"
     Write-BoxRule "mid"
-    Write-BoxLine "  [1] 极速纯黑盒体检  (默认 · 回车即跑 · 零本地端口/管道探测)" "Green"
-    Write-BoxLine "  [2] 深度体检 + 自动透视本机代理分组  (白名单只读查 Mihomo/sing-box)" "Cyan"
-    Write-BoxLine "  [3] 纯离线直出模式  (跑完本地生成 SVG 体检卡，不生成网页链接)" "Yellow"
-    Write-BoxLine "  [4] 零发包安全审计  (先看全部只读域名与 4 个绝不，不发任何包)" "Gray"
+    Write-BoxLine "  [1] 标准网络诊断      (默认 · 回车执行出口拓扑与 Google 归属探测)" "Green"
+    Write-BoxLine "  [2] 含本地控制口核对  (只读查询本机 127.0.0.1 / IPC 路由一致性)" "Cyan"
+    Write-BoxLine "  [3] 离线 SVG 报告模式 (运行后直接在本地生成 SVG，不输出网页链接)" "Yellow"
+    Write-BoxLine "  [4] 请求清单预览      (查看将访问的只读域名与安全边界，不发包)" "Gray"
     Write-BoxLine "  [Q] 退出" "DarkGray"
     Write-BoxRule "bot"
     $choice = (Read-Host "请选择 [1-4 / Q] (直接回车执行 1)").Trim().ToUpperInvariant()
@@ -488,18 +488,25 @@ function Invoke-CurlBatch {
     $p = New-Object System.Diagnostics.Process
     $p.StartInfo = $psi
     [void]$p.Start()
-    $procs += @{ Id = $id; Proc = $p; BodyFile = $bodyFile }
+    $outTask = $p.StandardOutput.ReadToEndAsync()
+    $errTask = $p.StandardError.ReadToEndAsync()
+    $procs += @{ Id = $id; Proc = $p; BodyFile = $bodyFile; OutTask = $outTask; ErrTask = $errTask }
   }
 
+  $batchDeadline = [DateTime]::UtcNow.AddMilliseconds(15000)
   $results = @{}
   foreach ($item in $procs) {
     $p = $item.Proc
-    $done = $p.WaitForExit(14500)
+    $remMs = [Math]::Max(50, [int]($batchDeadline - [DateTime]::UtcNow).TotalMilliseconds)
+    $done = $p.WaitForExit($remMs)
     if (-not $done) {
       try { $p.Kill() } catch {}
     }
     $metaStr = ""
-    try { $metaStr = $p.StandardOutput.ReadToEnd().Trim() } catch {}
+    try {
+      if ($item.OutTask.Wait(500)) { $metaStr = $item.OutTask.Result.Trim() }
+    } catch {}
+    try { [void]$item.ErrTask.Wait(100) } catch {}
     $exitCode = if ($done) { $p.ExitCode } else { 28 }
     $p.Dispose()
 
@@ -566,7 +573,7 @@ function Get-KindFromOrg {
   param([string]$Org, [string]$IdentType = "", [string]$RawIp = "")
   $low = ($Org + "").ToLowerInvariant()
   if ((Test-WarpIp $RawIp) -or $low -match "cloudflare|warp") { return "warp" }
-  if ($low -match "amazon|aws|google cloud|microsoft|azure|digitalocean|vultr|choopa|hetzner|ovh|linode|oracle|alibaba|aliyun|tencent|kirino|misaka|xtom|dmit|bandwagon|racknerd|zenlayer|m247|datacamp|leaseweb|scaleway|contabo|upcloud|vps|cloud|datacenter|hosting") {
+  if ($low -match "amazon|aws|google cloud|microsoft|azure|digitalocean|vultr|choopa|hetzner|ovh|linode|oracle|alibaba|aliyun|tencent|zenlayer|m247|datacamp|leaseweb|scaleway|contabo|upcloud|equinix|example cloud|vps|cloud|datacenter|data center|hosting|server|compute|colo") {
     return "hosting"
   }
   if ($low -match "cox |comcast|xfinity|verizon|at&t|spectrum|charter|softbank|ntt|kddi|chunghwa|hinet|pccw|hkbn|singtel|starhub|vodafone|telekom|telecom|broadband|fiber|fibre|cable|mobile") {
@@ -580,7 +587,7 @@ function Get-KindFromOrg {
 function Format-KindCn {
   param([string]$Kind)
   switch ($Kind) {
-    "hosting"  { return "云机房段" }
+    "hosting"  { return "数据中心" }
     "isp"      { return "运营商段" }
     "warp"     { return "WARP 出站" }
     "business" { return "商业网段" }
@@ -591,7 +598,7 @@ function Format-KindCn {
 function Test-RestrictedCountry {
   param([string]$Val)
   if (-not $Val) { return $false }
-  return ($Val.Trim().ToLowerInvariant() -in @("chn", "cn", "china", "hkg", "hk", "hong kong", "mac", "mo", "macau", "rus", "ru", "russia", "blr", "by", "belarus"))
+  return ($Val.Trim().ToLowerInvariant() -in @("chn", "cn", "china", "hkg", "hk", "hong kong", "mac", "mo", "macau", "macao", "rus", "ru", "russia", "blr", "by", "belarus", "cu", "cub", "cuba", "ir", "irn", "iran", "kp", "prk", "sy", "syr", "syria"))
 }
 
 function Parse-CfTrace {
@@ -1020,12 +1027,14 @@ try {
     $netLabel = "本机 TUN · Real-IP ($passiveTunNic)"
   } elseif ($hasExplicitProxy) {
     $netKind = "sysproxy"
-    $pxShort = $effectiveProxy -replace "^https?://", ""
+    $pxShort = ($effectiveProxy -replace "^[a-zA-Z0-9+.-]+://", "") -replace "^[^@/]+@", ""
+    if ($pxShort.Length -gt 32) { $pxShort = $pxShort.Substring(0, 32) }
     $netLabel = "系统代理 ($pxShort)"
   } elseif ($cnDirect -and $p.cc -and $p.cc -ne "CN") {
     $netKind = "router"
-    $netLabel = "上游透明代理 / 旁路由"
+    $netLabel = "上游透明路由 / 旁路由"
   }
+  if ($netLabel.Length -gt 48) { $netLabel = $netLabel.Substring(0, 48) }
 
   $netObj = [ordered]@{ kind = $netKind; label = $netLabel }
   if ($passiveTunNic) { $netObj.nic = $passiveTunNic }
@@ -1186,7 +1195,8 @@ try {
     $pipe = New-Object System.IO.Pipes.NamedPipeClientStream(".", $PipeName, [System.IO.Pipes.PipeDirection]::InOut)
     try {
       $pipe.Connect($TimeoutMs)
-      $authHdr = if ($ApiSecret) { "Authorization: Bearer $ApiSecret`r`n" } else { "" }
+      $safeSec = if ($ApiSecret) { ($ApiSecret -replace "[\r\n]", "") } else { "" }
+      $authHdr = if ($safeSec) { "Authorization: Bearer $safeSec`r`n" } else { "" }
       $reqText = "GET $Path HTTP/1.1`r`nHost: localhost`r`n${authHdr}Connection: close`r`n`r`n"
       $reqBytes = [System.Text.Encoding]::ASCII.GetBytes($reqText)
       $pipe.Write($reqBytes, 0, $reqBytes.Length)
@@ -1757,41 +1767,51 @@ try {
     [void]$alarmMsgs.Add(@{ Tone = "Cyan"; Text = "[i] 检出 Cloudflare WARP 出站: 部分业务经 WARP 转发，有效隔离原始机房段" })
   }
 
+  function Test-StackAnyGoogleResult {
+    param($S)
+    if ($null -eq $S) { return $false }
+    return [bool]($S.gem -or $S.nlm -in @("ok", "unavail") -or $S.yt -in @("ok", "cn", "noprem") -or $S.play -or $S.trm -or $S.sdom)
+  }
+
   $anyGemCaptcha = (($v4Data -and $v4Data.gemst -eq "captcha") -or ($v6Data -and $v6Data.gemst -eq "captcha"))
   $anyGemTimeout = (($v4Data -and $v4Data.gemst -eq "timeout") -or ($v6Data -and $v6Data.gemst -eq "timeout"))
   $anyOtherCaptcha = (
     ($v4Data -and ($v4Data.scap -eq "captcha" -or $v4Data.nlm -eq "captcha" -or $v4Data.playst -eq "captcha" -or $v4Data.trmst -eq "captcha")) -or
     ($v6Data -and ($v6Data.scap -eq "captcha" -or $v6Data.nlm -eq "captcha" -or $v6Data.playst -eq "captcha" -or $v6Data.trmst -eq "captcha"))
   )
+  $allGoogleFailed = (-not (Test-StackAnyGoogleResult $v4Data) -and -not (Test-StackAnyGoogleResult $v6Data) -and -not $anyGemCaptcha -and -not $anyOtherCaptcha -and -not $anyGemTimeout)
 
   $effKind = if ($splitHit -and $p.gkind) { $p.gkind } else { $p.kind }
   $vTag = "CLEAN"; $vColor = "Green"
-  $vText = if ($effKind -eq "hosting") { "云机房出口全绿可用 · 实测无送中无验证码 (反焦虑认证)" } else { "Google 全家桶全绿可用" }
+  $vText = if ($effKind -eq "hosting") { "数据中心出口可达 · 6 项服务响应正常" } else { "Google 服务可达 · 地区判定一致" }
   if ($dualConflict) {
     $vTag = "STACK_SPLIT"; $vColor = "Yellow"
-    $vText = "双栈不对称: IPv4($($v4Data.gem)) vs IPv6($($v6Data.gem))，建议关闭冲突栈"
+    $vText = "双栈不对称: IPv4($($v4Data.gem)) vs IPv6($($v6Data.gem))，建议统一协议栈"
   } elseif ($d4 -or $d6) {
     $vTag = "CN_DRIFT"; $vColor = "Red"
     $vText = if ($p.cc -and -not (Test-RestrictedCountry $p.cc)) {
-      "实锤 Google 私有库送中 (公开库 $($p.cc) / Apple $(if($appleCc){$appleCc}else{'?'})，但 Google 判受限)"
-    } else { "Google 生态判定为受限地区 / 送中" }
+      "Google 归属地偏移至受限区 (公开库 $($p.cc) / Apple $(if($appleCc){$appleCc}else{'?'})，Google 判受限)"
+    } else { "Google 判定当前出口位于受限地区" }
   } elseif ($anyGemCaptcha) {
     $vTag = "PARTIAL"; $vColor = "Red"
-    $vText = "Gemini 触发 /sorry/ 异常流量拦截 (429)，请冷却 30 分钟或浏览器过验"
+    $vText = "Gemini 触发 /sorry/ 异常流量验证 (HTTP 429)，建议冷却后重试"
   } elseif ($anyOtherCaptcha) {
     $vTag = "PARTIAL"; $vColor = "Yellow"
-    $vText = "检测到 Google /sorry/ 异常流量人机验证，建议降低探测频率或换出口"
+    $vText = "检测到 Google /sorry/ 异常流量验证，建议降低请求频率"
   } elseif ($anyGemTimeout) {
     $vTag = "PARTIAL"; $vColor = "Yellow"
-    $vText = "Gemini 探测超时 (12s)，可能被临时限速或代理链路抖动"
+    $vText = "Gemini 探测超时 (12s)，可能被临时限速或链路抖动"
+  } elseif ($allGoogleFailed) {
+    $vTag = "PARTIAL"; $vColor = "Yellow"
+    $vText = "Google 服务探测均无有效响应，请检查网络连通性"
   } elseif ($splitHit -or $slotIdx -ge 2) {
     $vTag = "SPLIT_ROUTE"; $vColor = "Cyan"
     if ($script:gemResolvedCluster -and $script:ggcCluster -and $script:gemResolvedCluster.Slot -ne $script:ggcCluster.Slot) {
-      $vText = "跨组分流生效 · 检出 $slotIdx 路海外出口 (Google AI 经 $($script:gemResolvedCluster.ShortOrg) · YT 经 $($script:ggcCluster.ShortOrg))"
+      $vText = "多出口分流生效 · 检出 $slotIdx 个非直连出口 (Google AI 经 $($script:gemResolvedCluster.ShortOrg) · YT 经 $($script:ggcCluster.ShortOrg))"
     } elseif ($p.gorg) {
-      $vText = "跨组分流生效 · 检出 $slotIdx 路海外出口 (Google/YT 经 $($p.gorg) 可用)"
+      $vText = "多出口分流生效 · 检出 $slotIdx 个非直连出口 (Google/YT 经 $($p.gorg) 可达)"
     } else {
-      $vText = "跨组分流生效 · 检出 $slotIdx 路海外出口且 Google 全绿可用"
+      $vText = "多出口分流生效 · 检出 $slotIdx 个非直连出口且 Google 服务响应正常"
     }
   }
 
@@ -1871,8 +1891,8 @@ try {
         return @{ Text = "${okPfx}$($S.play)"; Color = "Green"; Tone = "ok"; Ms = $msTxt }
       }
       "search" {
-        if ($S.scap -eq "captcha") { return @{ Text = "${wnPfx}CAPTCHA (/sorry)"; Color = "Yellow"; Tone = "diff"; Ms = $msTxt } }
         if ($S.sdom -eq "hkredirect" -or $S.scap -eq "hk") { return @{ Text = "${noPfx}HK_REDIRECT (.hk)"; Color = "Red"; Tone = "leak"; Ms = $msTxt } }
+        if ($S.scap -eq "captcha") { return @{ Text = "${wnPfx}CAPTCHA (/sorry)"; Color = "Yellow"; Tone = "diff"; Ms = $msTxt } }
         if ($S.scap -eq "jswall") { return @{ Text = "${wnPfx}$(if($S.sdom){$S.sdom}else{'SERP'}) (JS墙)"; Color = "Yellow"; Tone = "diff"; Ms = $msTxt } }
         if ($S.scap -eq "ok") { return @{ Text = "${okPfx}$(if($S.sdom){$S.sdom}else{'OK'}) (Clean)"; Color = "Green"; Tone = "ok"; Ms = $msTxt } }
         if ($S.sdom -and (-not $S.scap -or $S.scap -eq "skipped")) { return @{ Text = "${okPfx}$($S.sdom) (域正常)"; Color = "Green"; Tone = "ok"; Ms = $msTxt } }
@@ -1889,9 +1909,10 @@ try {
     }
   }
 
+  $pGoogleDisp = if ($p.gem) { $p.gem } elseif ($p.play) { $p.play } elseif ($p.trm) { $p.trm } elseif ($p.ytg) { $p.ytg } else { "?" }
   $utcTime = [DateTime]::UtcNow.ToString("yyyy-MM-dd HH:mm UTC")
   Write-BoxRule "top"
-  $leftTitle = "G-ROUTE v3 // Google 生态体检卡"
+  $leftTitle = "G-ROUTE v3 // 出口归属与服务可达性报告"
   $rightMeta = "[$netLabel] $utcTime"
   $titleW = ($W - 4) - (Get-DisplayWidth $rightMeta) - 1
   if ($titleW -lt 26) {
@@ -1910,13 +1931,13 @@ try {
     @{ Text = "[$vTag] "; Color = $vColor },
     @{ Text = $vText; Color = "White" }
   )
-  Write-BoxLine ("三方对照: 公开库={0}  |  Apple={1}  |  Google 实测={2}  |  DNS={3}" -f $(if($p.cc){$p.cc}else{"?"}), $(if($appleCc){$appleCc}else{"?"}), $(if($p.gem){$p.gem}else{"?"}), $(if($p.dns){$p.dns}else{"--"})) "DarkGray"
+  Write-BoxLine ("三方对照: 公开库={0}  |  Apple={1}  |  Google 实测={2}  |  DNS={3}" -f $(if($p.cc){$p.cc}else{"?"}), $(if($appleCc){$appleCc}else{"?"}), $pGoogleDisp, $(if($p.dns){$p.dns}else{"--"})) "DarkGray"
   if ($script:cooldownWarn) { Write-BoxLine $script:cooldownWarn "Yellow" }
 
-  # Section [01] 6-Bucket Split-Route Topology Radar
+  # Section [01] Route Topology
   Write-BoxRule "mid"
   $ovCount = ($clusters | Where-Object { -not $_.IsCn }).Count
-  Write-BoxLine ("[01] 6 桶分流拓扑雷达 (自动聚类: {0} 路海外出口{1})" -f $ovCount, $(if ($cnDirect) { " + 国内直连" } else { "" })) "Cyan"
+  Write-BoxLine ("[01] 出口路由拓扑 (按出口 IP 聚类: {0} 个非直连出口{1})" -f $ovCount, $(if ($cnDirect) { " + 国内直连" } else { "" })) "Cyan"
   $sW = 11; $ipW = if ($Compact) { 18 } else { 40 }; $msW = 7
   $bkW = ($W - 4) - $sW - $ipW - $msW - 3
   Write-BoxSegments @(
@@ -2108,7 +2129,7 @@ try {
     $y = $pad
     # Header
     [void]$sb.AppendLine("<rect x=""$($pad + 1)"" y=""$($y + 1)"" width=""$($inner - 2)"" height=""51"" fill=""$($pal.BgSub)""/>")
-    [void]$sb.AppendLine("<text x=""$($pad + 18)"" y=""$($y + 31)"" class=""m"" font-size=""14"" font-weight=""700"" fill=""$($pal.Fg)"">G-ROUTE v3 // GOOGLE 生态送中与分流体检卡</text>")
+    [void]$sb.AppendLine("<text x=""$($pad + 18)"" y=""$($y + 31)"" class=""m"" font-size=""14"" font-weight=""700"" fill=""$($pal.Fg)"">G-ROUTE v3 // 出口归属与服务可达性报告</text>")
     [void]$sb.AppendLine("<text x=""$($pad + $inner - 18)"" y=""$($y + 31)"" class=""m"" font-size=""11.5"" text-anchor=""end"" fill=""$($pal.FgMut)"">$(Escape-Xml "$netLabel  ·  $utcTime")</text>")
     $y += 52
     [void]$sb.AppendLine("<line x1=""$pad"" y1=""$y"" x2=""$($pad + $inner)"" y2=""$y"" stroke=""$($pal.Strong)"" stroke-width=""1""/>")
@@ -2118,14 +2139,14 @@ try {
     [void]$sb.AppendLine("<rect x=""$($pad + 18)"" y=""$($y + 16)"" width=""$tagW"" height=""26"" fill=""$vBg"" stroke=""$vCol"" stroke-width=""1""/>")
     [void]$sb.AppendLine("<text x=""$($pad + 18 + ($tagW / 2))"" y=""$($y + 33)"" class=""m"" font-size=""12"" font-weight=""700"" text-anchor=""middle"" fill=""$vCol"">[$vTag]</text>")
     [void]$sb.AppendLine("<text x=""$($pad + 28 + $tagW)"" y=""$($y + 34)"" class=""s"" font-size=""15"" font-weight=""700"" fill=""$($pal.Fg)"" clip-path=""url(#cardClip)"">$(Escape-Xml (Clip-Display $vText 76))</text>")
-    $geoLine = "三方对照: 公开库=$(if($p.cc){$p.cc}else{'?'})  |  Apple=$(if($appleCc){$appleCc}else{'?'})  |  Google 实测=$(if($p.gem){$p.gem}else{'?'})  |  通用出口: $($p.ip) (AS$(if($p.asn){$p.asn}else{'?'}) $($p.org))"
+    $geoLine = "三方对照: 公开库=$(if($p.cc){$p.cc}else{'?'})  |  Apple=$(if($appleCc){$appleCc}else{'?'})  |  Google 实测=$pGoogleDisp  |  默认出口: $($p.ip) (AS$(if($p.asn){$p.asn}else{'?'}) $($p.org))"
     [void]$sb.AppendLine("<text x=""$($pad + 18)"" y=""$($y + 66)"" class=""m"" font-size=""11.5"" fill=""$($pal.FgMut)"" clip-path=""url(#cardClip)"">$(Escape-Xml (Clip-Display $geoLine 96))</text>")
     $y += 86
     [void]$sb.AppendLine("<line x1=""$pad"" y1=""$y"" x2=""$($pad + $inner)"" y2=""$y"" stroke=""$($pal.Strong)"" stroke-width=""1""/>")
 
-    # Section 01: 6-Bucket Split-Route Radar
+    # Section 01: Route Topology
     [void]$sb.AppendLine("<rect x=""$($pad + 1)"" y=""$($y + 1)"" width=""$($inner - 2)"" height=""31"" fill=""$($pal.BgSub)""/>")
-    [void]$sb.AppendLine("<text x=""$($pad + 18)"" y=""$($y + 21)"" class=""m"" font-size=""11.5"" font-weight=""700"" fill=""$($pal.FgMut)"">[01] 6 桶分流拓扑雷达 · 自动聚类 ($ovCount 路海外出口)</text>")
+    [void]$sb.AppendLine("<text x=""$($pad + 18)"" y=""$($y + 21)"" class=""m"" font-size=""11.5"" font-weight=""700"" fill=""$($pal.FgMut)"">[01] 出口路由拓扑 · 按出口 IP 聚类 ($ovCount 个非直连出口)</text>")
     [void]$sb.AppendLine("<text x=""$($pad + $inner - 18)"" y=""$($y + 21)"" class=""m"" font-size=""11"" text-anchor=""end"" fill=""$($pal.FgFnt)"">RTT</text>")
     $y += 32
     foreach ($cl in $clusters) {
@@ -2150,13 +2171,13 @@ try {
 
     # Section 02: Google 6-Way Matrix
     [void]$sb.AppendLine("<rect x=""$($pad + 1)"" y=""$($y + 1)"" width=""$($inner - 2)"" height=""31"" fill=""$($pal.BgSub)""/>")
-    [void]$sb.AppendLine("<text x=""$($pad + 18)"" y=""$($y + 21)"" class=""m"" font-size=""11.5"" font-weight=""700"" fill=""$($pal.FgMut)"">[02] GOOGLE 生态 6 路真值矩阵</text>")
+    [void]$sb.AppendLine("<text x=""$($pad + 18)"" y=""$($y + 21)"" class=""m"" font-size=""11.5"" font-weight=""700"" fill=""$($pal.FgMut)"">[02] GOOGLE 服务可达性与归属矩阵</text>")
     if ($null -ne $v4Data -and $null -ne $v6Data) {
       [void]$sb.AppendLine("<text x=""$($pad + 270)"" y=""$($y + 21)"" class=""m"" font-size=""11"" fill=""$($pal.FgMut)"">IPv4 ($(Escape-Xml $v4Data.ip))</text>")
       [void]$sb.AppendLine("<text x=""$($pad + 560)"" y=""$($y + 21)"" class=""m"" font-size=""11"" fill=""$($pal.FgMut)"">IPv6 ($(Escape-Xml $v6Data.ip))</text>")
     } else {
-      [void]$sb.AppendLine("<text x=""$($pad + 244)"" y=""$($y + 21)"" class=""m"" font-size=""11"" fill=""$($pal.FgMut)"">实测结论</text>")
-      [void]$sb.AppendLine("<text x=""$($pad + 474)"" y=""$($y + 21)"" class=""m"" font-size=""11"" fill=""$($pal.FgMut)"">实测出口 (匿名槽位)</text>")
+      [void]$sb.AppendLine("<text x=""$($pad + 244)"" y=""$($y + 21)"" class=""m"" font-size=""11"" fill=""$($pal.FgMut)"">探测状态</text>")
+      [void]$sb.AppendLine("<text x=""$($pad + 474)"" y=""$($y + 21)"" class=""m"" font-size=""11"" fill=""$($pal.FgMut)"">出口槽位 (匿名)</text>")
       [void]$sb.AppendLine("<text x=""$($pad + $inner - 18)"" y=""$($y + 21)"" class=""m"" font-size=""11"" text-anchor=""end"" fill=""$($pal.FgFnt)"">RTT</text>")
     }
     $y += 32
@@ -2169,15 +2190,16 @@ try {
         $c6 = Format-Cell $r.Key $v6Data
         $c4Fg = if ($c4.Color -eq "Red") { $pal.Leak } elseif ($c4.Color -eq "Yellow") { $pal.Diff } elseif ($c4.Color -eq "Green") { $pal.Ok } else { $pal.FgMut }
         $c6Fg = if ($c6.Color -eq "Red") { $pal.Leak } elseif ($c6.Color -eq "Yellow") { $pal.Diff } elseif ($c6.Color -eq "Green") { $pal.Ok } else { $pal.FgMut }
-        [void]$sb.AppendLine("<text x=""$($pad + 270)"" y=""$($y + 21)"" class=""m"" font-size=""12"" font-weight=""600"" fill=""$c4Fg"">$(Escape-Xml $c4.Text)</text>")
-        [void]$sb.AppendLine("<text x=""$($pad + 560)"" y=""$($y + 21)"" class=""m"" font-size=""12"" font-weight=""600"" fill=""$c6Fg"">$(Escape-Xml $c6.Text)</text>")
+        [void]$sb.AppendLine("<text x=""$($pad + 270)"" y=""$($y + 21)"" class=""m"" font-size=""12"" font-weight=""600"" fill=""$c4Fg"">$(Escape-Xml (Clip-Display $c4.Text 28))</text>")
+        [void]$sb.AppendLine("<text x=""$($pad + 560)"" y=""$($y + 21)"" class=""m"" font-size=""12"" font-weight=""600"" fill=""$c6Fg"">$(Escape-Xml (Clip-Display $c6.Text 28))</text>")
       } else {
         $c = Format-Cell $r.Key $p
         $cFg = if ($c.Tone -eq "leak") { $pal.Leak } elseif ($c.Tone -eq "diff") { $pal.Diff } elseif ($c.Tone -eq "ok") { $pal.Ok } else { $pal.FgMut }
         $cBg = if ($c.Tone -eq "leak") { $pal.LeakBg } elseif ($c.Tone -eq "diff") { $pal.DiffBg } elseif ($c.Tone -eq "ok") { $pal.OkBg } else { $pal.BgSub }
-        $pillW = [Math]::Min(206, [Math]::Max(86, ((Get-DisplayWidth $c.Text) * 8) + 18))
+        $pillTxt = Clip-Display $c.Text 24
+        $pillW = [Math]::Min(212, [Math]::Max(86, ((Get-DisplayWidth $pillTxt) * 8) + 18))
         [void]$sb.AppendLine("<rect x=""$($pad + 244)"" y=""$($y + 6)"" width=""$pillW"" height=""22"" fill=""$cBg"" stroke=""$cFg"" stroke-width=""1""/>")
-        [void]$sb.AppendLine("<text x=""$($pad + 252)"" y=""$($y + 21)"" class=""m"" font-size=""11.5"" font-weight=""700"" fill=""$cFg"">$(Escape-Xml $c.Text)</text>")
+        [void]$sb.AppendLine("<text x=""$($pad + 252)"" y=""$($y + 21)"" class=""m"" font-size=""11.5"" font-weight=""700"" fill=""$cFg"">$(Escape-Xml $pillTxt)</text>")
 
         $exTxt = if ($script:svcExit.Contains($r.ExKey)) { $script:svcExit[$r.ExKey] } else { "--" }
         $exSp = Split-ExitDisplay $exTxt
@@ -2212,12 +2234,13 @@ try {
 
     # Footer
     [void]$sb.AppendLine("<line x1=""$pad"" y1=""$y"" x2=""$($pad + $inner)"" y2=""$y"" stroke=""$($pal.Strong)"" stroke-width=""1""/>")
-    [void]$sb.AppendLine("<text x=""$($pad + 18)"" y=""$($y + 27)"" class=""m"" font-size=""11"" fill=""$($pal.FgMut)"">G-ROUTE · Tier 0 本地离线直出 · 零数据上传 · 不打欺诈分 · $(if($includeLocalRules){'含个人存档策略链'}else{'已隐去本机节点名'})</text>")
+    [void]$sb.AppendLine("<text x=""$($pad + 18)"" y=""$($y + 27)"" class=""m"" font-size=""11"" fill=""$($pal.FgMut)"">G-ROUTE · 本地离线生成 · 无服务端存储 · $(if($includeLocalRules){'含本机控制口存档'}else{'已隐去本机节点名'})</text>")
     [void]$sb.AppendLine("<text x=""$($pad + $inner - 18)"" y=""$($y + 27)"" class=""m"" font-size=""11"" text-anchor=""end"" fill=""$($pal.FgFnt)"">IP: $(Escape-Xml $p.ip) · $vTag</text>")
     [void]$sb.AppendLine("</svg>")
 
-    [IO.File]::WriteAllText($OutPath, $sb.ToString(), (New-Object System.Text.UTF8Encoding($false)))
-    Write-ColorText "[OK] 已本地离线生成矢量 SVG 体检卡: $OutPath" "Green"
+    $resolvedSvg = $ExecutionContext.SessionState.Path.GetUnresolvedProviderPathFromPSPath($OutPath)
+    [IO.File]::WriteAllText($resolvedSvg, $sb.ToString(), (New-Object System.Text.UTF8Encoding($false)))
+    Write-ColorText "[OK] 已本地生成 SVG 报告: $resolvedSvg" "Green"
   }
 
   function Export-LocalPng {
@@ -2226,6 +2249,7 @@ try {
       $stamp = [DateTime]::Now.ToString("yyyyMMdd-HHmmss")
       $OutPath = Join-Path (Get-Location).Path "g-route-$stamp.png"
     }
+    $resolvedPng = $ExecutionContext.SessionState.Path.GetUnresolvedProviderPathFromPSPath($OutPath)
     try {
       Add-Type -AssemblyName System.Drawing -ErrorAction Stop
     } catch {
@@ -2282,7 +2306,7 @@ try {
 
       $y = $pad
       $g.FillRectangle($brSub, ($pad + 1), ($y + 1), ($inner - 2), 51)
-      $g.DrawString("G-ROUTE v3 // GOOGLE 生态送中与分流体检卡", $fMonoB, $brFg, ($pad + 16), ($y + 18))
+      $g.DrawString("G-ROUTE v3 // 出口归属与服务可达性报告", $fMonoB, $brFg, ($pad + 16), ($y + 18))
       $g.DrawString("$netLabel · $utcTime", $fMono, $brMut, (New-Object System.Drawing.RectangleF(($pad + 340), ($y + 18), ($inner - 356), 24)), $sfRight)
       $y += 52
       $g.DrawLine($penStrong1, $pad, $y, ($pad + $inner), $y)
@@ -2296,14 +2320,14 @@ try {
       $g.DrawRectangle($vPen, ($pad + 16), ($y + 16), $tagW, 26)
       $g.DrawString("[$vTag]", $fMonoS, $vBr, $tagRect, $sfCenter)
       $g.DrawString((Clip-Display $vText 76), $fSansH, $brFg, ($pad + 26 + $tagW), ($y + 18))
-      $geoLine = "三方对照: 公开库=$(if($p.cc){$p.cc}else{'?'}) | Apple=$(if($appleCc){$appleCc}else{'?'}) | Google=$(if($p.gem){$p.gem}else{'?'}) | 通用: $($p.ip) (AS$(if($p.asn){$p.asn}else{'?'}) $($p.org))"
+      $geoLine = "三方对照: 公开库=$(if($p.cc){$p.cc}else{'?'}) | Apple=$(if($appleCc){$appleCc}else{'?'}) | Google=$pGoogleDisp | 默认: $($p.ip) (AS$(if($p.asn){$p.asn}else{'?'}) $($p.org))"
       $g.DrawString((Clip-Display $geoLine 92), $fMono, $brMut, ($pad + 16), ($y + 54))
       $y += 86
       $g.DrawLine($penStrong1, $pad, $y, ($pad + $inner), $y)
 
-      # 01 Radar
+      # 01 Route Topology
       $g.FillRectangle($brSub, ($pad + 1), ($y + 1), ($inner - 2), 31)
-      $g.DrawString("[01] 6 桶分流拓扑雷达 · 自动聚类 ($ovCount 路海外出口)", $fMonoS, $brMut, ($pad + 16), ($y + 9))
+      $g.DrawString("[01] 出口路由拓扑 · 按出口 IP 聚类 ($ovCount 个非直连出口)", $fMonoS, $brMut, ($pad + 16), ($y + 9))
       $g.DrawString("RTT", $fMonoS, $brFnt, (New-Object System.Drawing.RectangleF(($pad + $inner - 80), ($y + 9), 64, 18)), $sfRight)
       $y += 32
       foreach ($cl in $clusters) {
@@ -2330,15 +2354,15 @@ try {
       $y += 14
       $g.DrawLine($penStrong1, $pad, $y, ($pad + $inner), $y)
 
-      # 02 Google 6-Way Matrix
+      # 02 Google Matrix
       $g.FillRectangle($brSub, ($pad + 1), ($y + 1), ($inner - 2), 31)
-      $g.DrawString("[02] GOOGLE 生态 6 路真值矩阵", $fMonoS, $brMut, ($pad + 16), ($y + 9))
+      $g.DrawString("[02] GOOGLE 服务可达性与归属矩阵", $fMonoS, $brMut, ($pad + 16), ($y + 9))
       if ($null -ne $v4Data -and $null -ne $v6Data) {
         $g.DrawString("IPv4 ($($v4Data.ip))", $fMonoS, $brMut, ($pad + 270), ($y + 9))
         $g.DrawString("IPv6 ($($v6Data.ip))", $fMonoS, $brMut, ($pad + 560), ($y + 9))
       } else {
-        $g.DrawString("实测结论", $fMonoS, $brMut, ($pad + 244), ($y + 9))
-        $g.DrawString("实测出口 (匿名槽位)", $fMonoS, $brMut, ($pad + 474), ($y + 9))
+        $g.DrawString("探测状态", $fMonoS, $brMut, ($pad + 244), ($y + 9))
+        $g.DrawString("出口槽位 (匿名)", $fMonoS, $brMut, ($pad + 474), ($y + 9))
         $g.DrawString("RTT", $fMonoS, $brFnt, (New-Object System.Drawing.RectangleF(($pad + $inner - 80), ($y + 9), 64, 18)), $sfRight)
       }
       $y += 32
@@ -2349,17 +2373,18 @@ try {
           $c4 = Format-Cell $r.Key $v4Data; $c6 = Format-Cell $r.Key $v6Data
           $b4 = if ($c4.Color -eq "Red") { $brLeak } elseif ($c4.Color -eq "Yellow") { $brDiff } elseif ($c4.Color -eq "Green") { $brOk } else { $brMut }
           $b6 = if ($c6.Color -eq "Red") { $brLeak } elseif ($c6.Color -eq "Yellow") { $brDiff } elseif ($c6.Color -eq "Green") { $brOk } else { $brMut }
-          $g.DrawString($c4.Text, $fMonoS, $b4, ($pad + 270), ($y + 9))
-          $g.DrawString($c6.Text, $fMonoS, $b6, ($pad + 560), ($y + 9))
+          $g.DrawString((Clip-Display $c4.Text 28), $fMonoS, $b4, ($pad + 270), ($y + 9))
+          $g.DrawString((Clip-Display $c6.Text 28), $fMonoS, $b6, ($pad + 560), ($y + 9))
         } else {
           $c = Format-Cell $r.Key $p
           $bC   = if ($c.Tone -eq "leak") { $brLeak } elseif ($c.Tone -eq "diff") { $brDiff } elseif ($c.Tone -eq "ok") { $brOk } else { $brMut }
           $bCBg = if ($c.Tone -eq "leak") { $brLeakBg } elseif ($c.Tone -eq "diff") { $brDiffBg } elseif ($c.Tone -eq "ok") { $brOkBg } else { $brSub }
           $pPen = New-Object System.Drawing.Pen($bC.Color, 1)
-          $pillW = [Math]::Min(212, [Math]::Max(86, [int][Math]::Ceiling($g.MeasureString($c.Text, $fMonoS).Width) + 14))
+          $pillTxt = Clip-Display $c.Text 24
+          $pillW = [Math]::Min(212, [Math]::Max(86, [int][Math]::Ceiling($g.MeasureString($pillTxt, $fMonoS).Width) + 14))
           $pRect = New-Object System.Drawing.RectangleF(($pad + 244), ($y + 6), $pillW, 22)
           $g.FillRectangle($bCBg, $pRect); $g.DrawRectangle($pPen, ($pad + 244), ($y + 6), $pillW, 22)
-          $g.DrawString($c.Text, $fMonoS, $bC, ($pad + 251), ($y + 9))
+          $g.DrawString($pillTxt, $fMonoS, $bC, ($pad + 251), ($y + 9))
           $pPen.Dispose()
 
           $exTxt = if ($script:svcExit.Contains($r.ExKey)) { $script:svcExit[$r.ExKey] } else { "--" }
@@ -2399,13 +2424,16 @@ try {
       }
 
       $g.DrawLine($penStrong1, $pad, $y, ($pad + $inner), $y)
-      $g.DrawString("G-ROUTE · Tier 0 本地离线直出 · 零数据上传 · 不打欺诈分", $fMono, $brMut, ($pad + 16), ($y + 14))
+      $g.DrawString("G-ROUTE · 本地离线生成 · 无服务端存储", $fMono, $brMut, ($pad + 16), ($y + 14))
       $g.DrawString("IP: $($p.ip) · $vTag", $fMono, $brFnt, (New-Object System.Drawing.RectangleF(($pad + $inner - 240), ($y + 14), 224, 18)), $sfRight)
 
-      $bmp.Save($OutPath, [System.Drawing.Imaging.ImageFormat]::Png)
-      Write-ColorText "[OK] 已本地离线生成 2x 高清 PNG 体检卡: $OutPath" "Green"
+      $bmp.Save($resolvedPng, [System.Drawing.Imaging.ImageFormat]::Png)
+      Write-ColorText "[OK] 已本地生成 2x PNG 报告: $resolvedPng" "Green"
       $vPen.Dispose()
     } finally {
+      foreach ($resObj in @($brBg, $brSub, $brFg, $brMut, $brFnt, $brOk, $brOkBg, $brDiff, $brDiffBg, $brLeak, $brLeakBg, $penStrong2, $penStrong1, $penRule, $fMonoB, $fMono, $fMonoS, $fSansH, $fSansB, $fSans, $sfRight, $sfCenter)) {
+        if ($null -ne $resObj) { try { $resObj.Dispose() } catch {} }
+      }
       $g.Dispose()
       $bmp.Dispose()
     }
@@ -2433,22 +2461,22 @@ try {
   if (-not $NoLink) {
     $payload = ConvertTo-GzipBase64Url -Text $jsonText
     if ($G_ROUTE_ORIGIN -match "^https?://") {
-      Write-ColorText "Web 体检卡 & PNG 导出:" "Cyan"
+      Write-ColorText "Web 报告链接:" "Cyan"
       Write-Host "$G_ROUTE_ORIGIN/#r=$payload"
     } else {
-      Write-ColorText "离线报告码 (粘贴到 G-ROUTE 网页渲染体检卡 / 双卡 Diff):" "Cyan"
+      Write-ColorText "离线报告码 (粘贴到 G-ROUTE 网页加载报告或对比):" "Cyan"
       Write-Host "G1:$payload"
     }
   }
-  Write-ColorText "注: 100% 本地探测并离线编码，IP 已默认脱敏(-Full 显示完整)，零数据上传。" "DarkGray"
+  Write-ColorText "注: 本地探测并离线编码，IP 已默认脱敏 (-Full 显示完整)，无服务端存储。" "DarkGray"
 
   # -------------------------------------------------------------------------
   # Post-Run Interactive Quick Actions (No Re-Probing Needed!)
   # -------------------------------------------------------------------------
   if ($isInteractiveTty -and -not $NoMenu -and -not $Quick) {
     while ($true) {
-      $opts = @("[S] 本地存 SVG", "[P] 本地存 PNG")
-      if (-not $script:didInspect) { $opts += "[R] 补查本机代理分组" }
+      $opts = @("[S] 导出 SVG", "[P] 导出 PNG")
+      if (-not $script:didInspect) { $opts += "[R] 查询本地控制口路由" }
       $opts += "[Enter] 退出"
       Write-Host ""
       $act = (Read-Host ("快捷操作: " + ($opts -join "  "))).Trim().ToUpperInvariant()

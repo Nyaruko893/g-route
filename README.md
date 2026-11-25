@@ -1,20 +1,21 @@
-# G-ROUTE v3 // Google 生态送中与全链路分流体检仪
+# G-ROUTE v3 // Google 连通性与路由归属诊断工具
 
-> 对标“Google 专属、反焦虑版 IPQuality”：以 **零依赖并发 CLI 为真值探针与分流雷达**，支持 **本地直接离线生成矢量 SVG 与 Windows 原生 PNG**（彻底无需打开网页），同时配套 **Cloudflare Workers Static Assets 精工体检卡与双卡 Diff 台**，全程守住 **永久 $0 成本、零提权、零读磁盘配置、服务端零落库、零隐私上传**。
+只读网络出口、GeoIP 归属差异与 Google 服务可达性诊断工具。提供无依赖 CLI 探测脚本、本地离线 SVG/PNG 报告导出，以及基于 Cloudflare Workers Static Assets 的静态报告解码与对比页面。
 
-## 核心亮点 (V3)
+## 核心特性
 
-1. **零门槛全局交互入口**：无参数直跑展示 1 屏紧凑菜单（零发包前先选模式或看安全审计，直接回车跑极速纯黑盒）；跑完后支持**免重跑快捷动作**（按 `S` 本地存 SVG / Windows 按 `P` 本地存 PNG / 按 `R` 补查本机代理分组）。带任何参数或非交互管道自动跳过菜单。
-2. **两层自动环境识别**：
-   - **Layer 1（默认常开，纯被动只读）**：自动识别 `本机 TUN · Fake-IP`、`本机 TUN · Real-IP`（只读虚拟网卡名）、`系统代理`、`上游透明代理 / 旁路由` 与 `直连出站`。
-   - **Layer 2（可选 `--inspect` / `-Inspect`）**：按公开白名单自动发现 Clash Verge Rev / Mihomo Party / Nyanpasu / sing-box 的命名管道、Unix Socket 或 `127.0.0.1:9090/9097/9095`（遇 401 现场提示密钥），并行审计 **15 个 Google AI & 跨 AI 关键域名**（含 `generativelanguage.googleapis.com`、`alkalimakersuite-pa.clients6.google.com`、`oauth2.googleapis.com`、`accounts.google.com`），绝不扫进程名、绝不读 `%APPDATA%` 磁盘文件。
-3. **并发 6 桶分流拓扑雷达（4–6 秒出卡）**：并行探测国内直连、通用海外、Google/YT GGC、Cloudflare、OpenAI (ChatGPT) 与 Anthropic (Claude) 实见出口，自动聚合成 `[出口 A/B/C]`，附各桶 RTT、WARP 标记与 4 类自动化分流暗坑告警。
-4. **本地 100% 离线出图（免去网页后患）**：跨平台零依赖纯文本直出高清矢量 `.svg`（支持 `--theme light|dark`，默认严格隐藏本机节点名），Windows 端同步支持系统内置 `.NET System.Drawing` 零依赖直出 2x `.png`。
+1. **交互式入口与直通参数**：无参数运行展示单屏交互菜单，支持回车执行标准诊断或先预览请求清单；带参数或非交互管道自动跳过菜单。运行后支持本地导出 SVG（Windows 同步支持原生 PNG）或补充只读查询本地控制接口。
+2. **被动网络形态识别**：
+   - 默认只读检测出站形态（`本机 TUN · Fake-IP`、`本机 TUN · Real-IP`、`系统代理`、`上游透明路由`、`直连出站`）。
+   - 显式传入 `--inspect` / `-Inspect` 时，只读查询本机回环控制接口（`127.0.0.1` 或本地 IPC），按策略链聚合核对 16 个关键域名的路由一致性（仅终端展示，默认不写入 `#r=` 与导出图片）。
+3. **多出口路由聚类**：并行探测国内直连参照、默认出站、Google GGC、Cloudflare、OpenAI 与 Anthropic 的出口 IP 与 RTT，按出口槽位自动聚合。
+4. **本地离线导出**：跨平台零依赖生成矢量 `.svg`（支持 `--theme light|dark`），Windows 端同步支持内置 `.NET System.Drawing` 导出 2x `.png`，无需打开网页。
+5. **低频保护与精准风控检测**：默认仅请求 `searchdomaincheck` 而跳过主动 `/search` 页面爬取（避免触发 Google `/sorry/` 频控，可通过 `--probe-search` / `-ProbeSearch` 显式开启）；统一识别 HTTP 429 `/sorry/`、超时与无 JS 验证页（`enablejs`）。
 
 ## 快速开始
 
-### 1. 一行命令启动（默认进入 1 屏交互菜单，回车即跑）
-- **Linux / macOS / VPS（GitHub Raw）**：
+### 1. 终端运行（默认进入交互菜单）
+- **Linux / macOS**：
   ```bash
   bash <(curl -sL https://raw.githubusercontent.com/Nyaruko893/g-route/main/scripts/check.sh)
   ```
@@ -22,27 +23,30 @@
   ```powershell
   irm https://raw.githubusercontent.com/Nyaruko893/g-route/main/scripts/check.ps1 | iex
   ```
-- **部署到 Cloudflare Workers 后的短链**：
-  - Linux / macOS / VPS：`bash <(curl -sL https://<your-worker>.workers.dev/sh)`
+- **自部署 Cloudflare Workers 短链**：
+  - Linux / macOS：`bash <(curl -sL https://<your-worker>.workers.dev/sh)`
   - Windows PowerShell：`irm https://<your-worker>.workers.dev/ps | iex`
 
-### 2. 常用直通参数（跳过菜单直跑）
-- `--quick` / `-Quick`：跳过交互菜单直接执行纯黑盒体检
-- `--inspect` / `-Inspect`（或环境变量 `G_ROUTE_INSPECT=1`）：白名单自动发现本机 Mihomo / sing-box 控制口并审计 15 域规则一致性
-- `--controller <url|pipe|sock>` / `-Controller`（配 `--secret` / `-Secret`）：显式指定本地控制口，仅本屏只读展示，绝不写入 `#r=` 或默认 SVG/PNG
-- `--svg [path]` / `-Svg [path]`：本地 100% 离线生成高清矢量 SVG 体检卡（配 `--theme dark` / `--with-rules`）
-- `-Png [path]`（Windows）：零依赖调用内置 `.NET` 本地直出 2x 高清 PNG
-- `--dry-run` / `-DryRun`：零发包安全审计，打印全部只读请求域名与权限边界后立即退出
-- `--ascii` / `--compact` / `NO_COLOR=1`：老旧终端与窄屏兼容选项
+### 2. 常用参数
+- `--quick` / `-Quick`：跳过交互菜单直接执行标准诊断
+- `--inspect` / `-Inspect`（或 `G_ROUTE_INSPECT=1`）：只读查询本机回环控制接口并核对 16 域路由一致性
+- `--controller <url|pipe|sock>` / `-Controller`（配 `--secret` / `-Secret`）：指定本机控制接口地址，仅终端展示
+- `--svg [path]` / `-Svg [path]`：本地离线生成 SVG 报告（配 `--theme dark` / `--with-rules`）
+- `-Png [path]`（Windows）：调用系统 `.NET` 本地导出 2x PNG 报告
+- `--probe-search` / `-ProbeSearch`：显式启用主动 Google SERP (`/search`) 探测（默认关闭）
+- `--dry-run` / `-DryRun`：仅打印只读请求域名与执行边界后退出，不发起网络请求
+- `--ascii` / `--compact` / `NO_COLOR=1`：兼容窄屏或无颜色终端
 - `-4` / `-6`（`-V4` / `-V6`）、`-f`（`-Full`）、`-x <proxy>`（`-Proxy`）、`-j`（`-Json`）、`--no-link`（`-NoLink`）
 
-### 3. 权限边界契约（4 个绝不）
-1. 绝不申请管理员 / UAC / `sudo` 提权；
-2. 绝不读取磁盘配置文件（`~/.ssh`、`%APPDATA%` 代理订阅、浏览器 Cookie）或枚举进程；
-3. 绝不向任何服务器上传检测结果（`#r=`、本地 SVG 与本地 PNG 均 100% 离线生成，默认 IP 脱敏）；
-4. 绝不下载二进制文件或执行混淆密文；网页启动台内置实时源码审阅器与浏览器端 `SHA-256` 校验。
+## 安全与隐私边界
 
-### 4. 本地开发与验证
+1. 不申请管理员 / UAC / `sudo` 权限；
+2. 不读取本地配置文件（应用配置、`~/.ssh`、浏览器 Cookie）或枚举进程；
+3. 不向服务端上传诊断结果（`#r=`、SVG 与 PNG 均在本地生成，IP 默认脱敏）；
+4. 不下载二进制文件；网页端内置实时源码查看与浏览器端 `SHA-256` 校验。
+
+## 本地开发与验证
+
 ```bash
 pnpm install
 pnpm run typecheck

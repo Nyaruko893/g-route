@@ -71,15 +71,6 @@ export interface ReportBadge {
   readonly text: string;
 }
 
-export interface PrescriptionItem {
-  readonly id: string;
-  readonly tone: 'leak' | 'diff' | 'ok';
-  readonly title: string;
-  readonly body: string;
-  readonly actionUrl?: string;
-  readonly actionLabel?: string;
-}
-
 export interface EgressAttribution {
   readonly ip: string;
   readonly asn: number | null;
@@ -109,14 +100,6 @@ export interface ReportDiagnosis {
   readonly routeClusters: readonly RouteExitCluster[];
   readonly routeAlarms: readonly RouteAlarm[];
   readonly rows: readonly ServiceMatrixRow[];
-  readonly prescriptions: readonly PrescriptionItem[];
-  readonly suggestedPatch: {
-    readonly includeAiBackend: boolean;
-    readonly includeAntiGoogleCn: boolean;
-    readonly includeGoogleCore: boolean;
-    readonly includeGmsFcm: boolean;
-  };
-  readonly suggestGmsDrawer: boolean;
 }
 
 interface DiffRow {
@@ -284,7 +267,7 @@ function classifyOrgKind(
     return 'warp';
   }
   if (
-    /amazon|aws|google cloud|microsoft|azure|digitalocean|vultr|choopa|hetzner|ovh|linode|oracle|alibaba|aliyun|tencent|kirino|misaka|xtom|dmit|bandwagon|racknerd|zenlayer|m247|datacamp|leaseweb|scaleway|contabo|upcloud|vps|cloud|datacenter|hosting/.test(
+    /amazon|aws|google cloud|microsoft|azure|digitalocean|vultr|choopa|hetzner|ovh|linode|oracle|alibaba|aliyun|tencent|leaseweb|scaleway|contabo|upcloud|m247|datacamp|zenlayer|equinix|example cloud|vps|cloud|datacenter|data center|hosting|server|compute|colo/.test(
       org,
     )
   ) {
@@ -303,7 +286,7 @@ function classifyOrgKind(
 function kindToChineseLabel(kind: 'hosting' | 'isp' | 'warp' | 'business' | 'unknown'): string {
   switch (kind) {
     case 'hosting':
-      return '云机房段';
+      return '数据中心';
     case 'isp':
       return '运营商段';
     case 'warp':
@@ -371,7 +354,7 @@ function evaluateStackHealth(stack: StackProbeV1 | undefined, stackLabel: string
     driftReasons.push(`${stackLabel} YouTube Premium 命中 www.google.cn`);
   } else if (stack.yt === 'noprem') {
     driftHits += 1;
-    driftReasons.push(`${stackLabel} YouTube Premium 报当前地区不支持（半隐身送中特征）`);
+    driftReasons.push(`${stackLabel} YouTube Premium 当前地区不可用`);
   }
   if (playCc && RESTRICTED_GOOGLE_AI.has(playCc)) {
     driftHits += 1;
@@ -417,6 +400,22 @@ function evaluateStackHealth(stack: StackProbeV1 | undefined, stackLabel: string
     partialReasons.push(`${stackLabel} Google Search 无 JS 客户端命中 enablejs 验证墙（非 /sorry）`);
   }
 
+  const hasAnyGoogleResult = Boolean(
+    gemCc ||
+      stack.nlm === 'ok' ||
+      stack.nlm === 'unavail' ||
+      stack.yt === 'ok' ||
+      stack.yt === 'cn' ||
+      stack.yt === 'noprem' ||
+      playCc ||
+      trmCc ||
+      stack.sdom,
+  );
+  const allProbesFailed = !hasAnyGoogleResult && !hasCaptcha && !hasGeminiTimeout;
+  if (allProbesFailed) {
+    partialReasons.push(`${stackLabel} Google 服务探测均无有效响应`);
+  }
+
   const coreVotes = [playCc, trmCc, sdomCc].filter((v): v is string => v !== null);
   const coreGoogleCc = coreVotes[0] ?? null;
   const dominantGoogleCc = gemCc ?? coreGoogleCc ?? normalizeCountryCode(stack.ytg);
@@ -425,7 +424,7 @@ function evaluateStackHealth(stack: StackProbeV1 | undefined, stackLabel: string
     gemCc !== null && coreGoogleCc !== null && gemCc !== coreGoogleCc;
   if (hasAiVsGoogleSplit) {
     partialReasons.push(
-      `${stackLabel} Gemini (${gemCc}) 与泛 Google 底座 (${coreGoogleCc}) 落区不一致`,
+      `${stackLabel} Gemini (${gemCc}) 与 Google 基础服务 (${coreGoogleCc}) 判区不一致`,
     );
   }
 
@@ -440,6 +439,7 @@ function evaluateStackHealth(stack: StackProbeV1 | undefined, stackLabel: string
   const hasPartialIssue =
     hasCaptcha ||
     hasGeminiTimeout ||
+    allProbesFailed ||
     (driftHits === 1 && !hasDrift) ||
     hasAiVsGoogleSplit;
 
@@ -513,13 +513,13 @@ function buildYoutubeCell(s: StackProbeV1): ServiceCell {
   const ms = s.rtt?.yt;
   const exitSlot = resolveCellExit(s, 'yt');
   if (s.yt === 'cn') {
-    return { tone: 'leak', badge: '送中 [CN]', detail: '命中 www.google.cn', ms, exitSlot };
+    return { tone: 'leak', badge: '受限 [CN]', detail: '命中 www.google.cn', ms, exitSlot };
   }
   if (s.yt === 'noprem') {
     return {
       tone: 'leak',
       badge: '不支持 Premium',
-      detail: s.ytg ? `GL=${s.ytg} 但正文报地区不可用` : '半隐身送中特征',
+      detail: s.ytg ? `GL=${s.ytg}，页面提示地区不可用` : 'GL 与可用性不一致',
       ms,
       exitSlot,
     };
@@ -528,7 +528,7 @@ function buildYoutubeCell(s: StackProbeV1): ServiceCell {
     return {
       tone: 'ok',
       badge: `可用 [${s.ytg ?? 'OK'}]`,
-      detail: 'Premium + 无送中标记',
+      detail: 'Premium 地区可用',
       ms,
       exitSlot,
     };
@@ -544,10 +544,10 @@ function buildGgcCell(s: StackProbeV1): ServiceCell {
   }
   const isIspCache = s.cdn.includes('-') && !s.cdnu;
   const ipDiff = Boolean(s.ip && s.gip && s.ip !== s.gip);
-  const ipHint = ipDiff ? `出口 ${s.gip} ≠ 通用` : s.gip ? `Google 见 ${s.gip}` : '';
+  const ipHint = ipDiff ? `出口 ${s.gip} ≠ 默认` : s.gip ? `Google 侧 ${s.gip}` : '';
   const cacheHint = isIspCache ? 'ISP 内嵌 GGC' : s.cdnu ? '边缘机房 [u]' : 'Google 边缘';
   return {
-    tone: ipDiff ? 'diff' : 'ok',
+    tone: 'ok',
     badge: s.cdn,
     detail: [cacheHint, ipHint].filter(Boolean).join(' · '),
     ms,
@@ -566,7 +566,7 @@ function buildPlayCell(s: StackProbeV1): ServiceCell {
   }
   const iso = normalizeCountryCode(s.play);
   if (iso && RESTRICTED_GOOGLE_AI.has(iso)) {
-    return { tone: 'leak', badge: `送中 [${iso}]`, detail: s.play, ms, exitSlot };
+    return { tone: 'leak', badge: `受限 [${iso}]`, detail: s.play, ms, exitSlot };
   }
   return { tone: 'ok', badge: iso ? `正常 [${iso}]` : s.play, detail: s.play, ms, exitSlot };
 }
@@ -575,20 +575,20 @@ function buildSearchCell(s: StackProbeV1): ServiceCell {
   const ms = s.rtt?.srch;
   const exitSlot = resolveCellExit(s, 'srch');
   const hkRedirect = s.sdom === 'hkredirect' || (s.sdom && /\.hk$|\.cn$/i.test(s.sdom));
+  if (hkRedirect || s.scap === 'hk') {
+    return {
+      tone: 'leak',
+      badge: '重定向 (.com.hk)',
+      detail: s.sdom === 'hkredirect' ? '302 pref=hkredirect' : '重定向至香港搜索域',
+      ms,
+      exitSlot,
+    };
+  }
   if (s.scap === 'captcha') {
     return {
       tone: 'diff',
       badge: '弹验证码 (/sorry)',
       detail: s.sdom ? `搜索域 ${s.sdom}` : '触发异常流量验证',
-      ms,
-      exitSlot,
-    };
-  }
-  if (hkRedirect || s.scap === 'hk') {
-    return {
-      tone: 'leak',
-      badge: '送中 (.com.hk)',
-      detail: s.sdom === 'hkredirect' ? '302 pref=hkredirect · 无验证码' : '静默重定向香港搜索',
       ms,
       exitSlot,
     };
@@ -606,7 +606,7 @@ function buildSearchCell(s: StackProbeV1): ServiceCell {
     return {
       tone: 'ok',
       badge: s.sdom ?? '无验证码',
-      detail: 'SERP 实测直出 · 无 /sorry 拦截',
+      detail: 'SERP 响应正常 · 无 /sorry 拦截',
       ms,
       exitSlot,
     };
@@ -615,7 +615,7 @@ function buildSearchCell(s: StackProbeV1): ServiceCell {
     return {
       tone: 'ok',
       badge: `${s.sdom} (域正常)`,
-      detail: '默认防自伤跳过 SERP 爬取（加 --probe-search 主动测）',
+      detail: '默认跳过 /search 页面请求（可通过 --probe-search 启用）',
       ms,
       exitSlot,
     };
@@ -642,7 +642,7 @@ function buildTermsCell(s: StackProbeV1): ServiceCell {
   }
   const iso = normalizeCountryCode(s.trm);
   if (iso && RESTRICTED_GOOGLE_AI.has(iso)) {
-    return { tone: 'leak', badge: `送中 [${iso}]`, detail: `${s.trm} · ${s.ent ?? ''}`.trim(), exitSlot };
+    return { tone: 'leak', badge: `受限 [${iso}]`, detail: `${s.trm} · ${s.ent ?? ''}`.trim(), exitSlot };
   }
   if (s.ent === 'Google Ireland Limited' || (iso && EEA_UK_CH.has(iso))) {
     return {
@@ -680,10 +680,10 @@ function clusterRouteExits(
         tone: isRealCn ? 'ok' : 'leak',
         ip: rt.cn.ip ?? '--',
         asn: rt.cn.asn ?? null,
-        org: rt.cn.note || rt.cn.org || (isRealCn ? '国内直连出口' : '疑似绕行海外'),
-        kindLabel: isRealCn ? '直连分流' : '绕行告警',
+        org: rt.cn.note || rt.cn.org || (isRealCn ? '国内直连出口' : '非 CN 出口'),
+        kindLabel: isRealCn ? '直连分流' : '路由提醒',
         cc: rt.cn.cc ?? (isRealCn ? 'CN' : '?'),
-        buckets: [isRealCn ? '国内直连 (未绕行代理)' : '国内桶落入非 CN 出口'],
+        buckets: [isRealCn ? '国内直连出口' : '国内参照点落入非 CN 出口'],
         avgMs: rt.cn.ms ?? null,
         warp: false,
         isCnDirect: isRealCn,
@@ -799,8 +799,8 @@ function extractRouteAlarms(
     alarms.push({
       id: 'cn_leak',
       tone: 'leak',
-      title: '国内流量疑似绕行海外代理',
-      detail: `国内参照桶返回 ${rt?.cn?.ip ?? '?'} (${rt?.cn?.cc ?? '非CN'})，请检查 GeoIP CN / DIRECT 直连规则是否生效。`,
+      title: '国内参照探测点经非 CN 出口出站',
+      detail: `国内参照探测点返回 ${rt?.cn?.ip ?? '?'} (${rt?.cn?.cc ?? '非CN'})，未走本地直连路由。`,
     });
   }
 
@@ -808,8 +808,8 @@ function extractRouteAlarms(
     alarms.push({
       id: 'stack_split',
       tone: 'leak',
-      title: 'IPv4 / IPv6 双栈落区或可用性冲突',
-      detail: 'Google 激进优先 IPv6，建议关闭冲突协议栈或在规则中锁定单一栈。',
+      title: 'IPv4 / IPv6 双栈地区判定不一致',
+      detail: '客户端通常优先尝试 IPv6 (Happy Eyeballs)，双栈判区不一致会导致连接结果不稳定。',
     });
   }
 
@@ -817,8 +817,8 @@ function extractRouteAlarms(
     alarms.push({
       id: 'google_region_split',
       tone: 'diff',
-      title: 'Google 同生态跨区撕裂',
-      detail: 'Gemini 与泛 Google 服务（Play / Search / Terms）落入不同国家，容易触发风控。',
+      title: 'Google 服务间归属地不一致',
+      detail: 'Gemini 与 Play / Search / Terms 判定国家不同，建议核对分流路由是否一致。',
     });
   }
 
@@ -957,67 +957,67 @@ export function diagnoseCliReport(report: CliReportV1): ReportDiagnosis {
   // Determine 4-state verdict tier
   let tier: VerdictTier = 'clean';
   let tierCode = 'CLEAN';
-  let headline = 'Google 全家桶全绿可用';
-  let summary = '6 路 Google 实测地区一致，无送中、无搜索验证码拦截，可稳定使用 Gemini / AI Studio / NotebookLM。';
+  let headline = 'Google 服务可达，地区判定一致';
+  let summary = '6 项探测响应正常，归属地位于支持区域，未触发异常流量验证。';
 
   if (anyDrift && !hasDualStackAsymmetry) {
     tier = 'drift';
     tierCode = 'CN_DRIFT';
     headline = googleOnlyDrift
-      ? `实锤 Google 私有库送中（公开库${appleCc ? `与 Apple 仍判 ${appleCc}` : `仍判 ${primaryPublicCc}`}）`
-      : 'Google 生态判定为受限地区 / 送中';
+      ? `Google 归属地偏移至受限区（公开 GeoIP${appleCc ? ` 与 Apple 为 ${appleCc}` : ` 为 ${primaryPublicCc}`}）`
+      : 'Google 判定当前出口位于受限地区';
     summary = [...h4.driftReasons, ...h6.driftReasons].slice(0, 3).join('；') + '。';
   } else if (hasDualStackAsymmetry) {
     tier = 'partial';
     tierCode = 'STACK_SPLIT';
-    headline = '双栈不对称（IPv4 与 IPv6 归属或可用性冲突）';
-    summary = `IPv4 判区 ${h4.dominantGoogleCc ?? '?'}，IPv6 判区 ${h6.dominantGoogleCc ?? '?'}。Google 客户端激进优先 IPv6，双栈不一致会直接引发偶发报错或送中。`;
+    headline = 'IPv4 与 IPv6 双栈地区判定不一致';
+    summary = `IPv4 判区 ${h4.dominantGoogleCc ?? '?'}，IPv6 判区 ${h6.dominantGoogleCc ?? '?'}。客户端通常优先尝试 IPv6，双栈不一致可能导致部分服务判定受限。`;
   } else if (h4.hasAiVsGoogleSplit || h6.hasAiVsGoogleSplit) {
     tier = 'partial';
     tierCode = 'GROUP_SPLIT';
-    headline = '检出 AI 组与泛 Google 组跨国串台';
-    summary = [...h4.partialReasons, ...h6.partialReasons].join('；') + '。建议将 Gemini/AI 与 Google 底座收敛至同一固定地区节点。';
+    headline = 'Google AI 与基础服务出口地区不一致';
+    summary = [...h4.partialReasons, ...h6.partialReasons].join('；') + '。建议核对相关域名命中的出站路由是否统一。';
   } else if (h4.hasCaptcha || h6.hasCaptcha || h4.hasPartialIssue || h6.hasPartialIssue) {
     tier = 'partial';
     tierCode = 'PARTIAL';
     const gemBlocked = v4?.gemst === 'captcha' || v6?.gemst === 'captcha';
     const gemTimedOut = v4?.gemst === 'timeout' || v6?.gemst === 'timeout';
     headline = gemBlocked
-      ? 'Gemini 触发 /sorry/ 异常流量拦截（需冷却或浏览器过验）'
+      ? 'Gemini 触发 /sorry/ 异常流量验证 (HTTP 429)'
       : h4.hasCaptcha || h6.hasCaptcha
-        ? '检测到 /sorry/ 人机验证拦截（建议冷却或切换出口）'
+        ? '检测到 Google /sorry/ 异常流量验证'
         : gemTimedOut
           ? 'Gemini 探测超时（可能被限速或链路抖动）'
-          : '检测到局部异常或灰度受限';
+          : '检测到局部异常或探测无响应';
     summary = [...h4.partialReasons, ...h6.partialReasons, ...h4.driftReasons, ...h6.driftReasons].join('；') + '。';
   } else if (hasSplitRoute) {
     tier = 'split';
     tierCode = 'SPLIT_ROUTE';
     headline = googleEgress
-      ? `跨组分流生效 · Google 经 ${googleEgress.kindLabel} 干净可用`
-      : '跨组分流生效 · Google/AI 出口干净可用';
+      ? `多出口分流生效 · Google 经 ${googleEgress.kindLabel} 出口可达`
+      : '多出口分流生效 · Google 服务可达';
     summary = googleEgress
-      ? `通用出口 (${defaultEgress.ip} · ${defaultEgress.org}) 与 Google 实见出口 (${googleEgress.ip} · ${googleEgress.org}) 已拆分，Google 6 路探针全部落入干净地区 (${primaryGoogleCc ?? 'OK'})。`
-      : `当前处于分流出站，通用出口 (${primaryPublicCc ?? '?'}) 与 Google/AI (${primaryGoogleCc ?? '?'}) 已拆分至不同地区且全部可用。`;
+      ? `默认出口 (${defaultEgress.ip} · ${defaultEgress.org}) 与 Google 侧出口 (${googleEgress.ip} · ${googleEgress.org}) 已分离，6 项探测均位于支持地区 (${primaryGoogleCc ?? 'OK'})。`
+      : `当前为分流出站，默认出口 (${primaryPublicCc ?? '?'}) 与 Google 侧 (${primaryGoogleCc ?? '?'}) 归属地不同且均正常响应。`;
   } else if (isHostingVerifiedOk) {
-    headline = '云机房出口全绿可用 · 实测无送中无验证码';
-    summary = `虽然该 Google 出口属于 ${defaultEgress.org}（云机房段），但 6 路真值全部通过且无 /sorry 拦截——实测可用即是硬道理，无需为“机房标签”焦虑换家宽。`;
+    headline = '数据中心出口可达 · 服务与归属地正常';
+    summary = `当前出口属于 ${defaultEgress.org}（数据中心网段），6 项 Google 服务探测均正常响应，未触发 /sorry 验证。`;
   }
 
   // Status badges (crisp, scannable)
   const badges: ReportBadge[] = [];
   badges.push({ tone: 'muted', text: transportLabel });
   if (isHostingVerifiedOk) {
-    badges.push({ tone: 'ok', text: '机房 · 实测无碍' });
+    badges.push({ tone: 'ok', text: '数据中心网段' });
   } else if (effectiveGoogleKind === 'warp') {
-    badges.push({ tone: 'ok', text: 'Google 走 WARP' });
+    badges.push({ tone: 'ok', text: 'WARP 出站' });
   } else if (effectiveGoogleKind === 'isp') {
-    badges.push({ tone: 'ok', text: 'Google 走运营商段' });
+    badges.push({ tone: 'ok', text: '运营商网段' });
   }
   if (primary?.dns === 'native') {
-    badges.push({ tone: 'ok', text: 'Native 原生' });
+    badges.push({ tone: 'ok', text: 'Native DNS' });
   } else if (primary?.dns === 'viadns') {
-    badges.push({ tone: 'diff', text: 'ViaDNS 解锁' });
+    badges.push({ tone: 'diff', text: 'DNS 转发 (ViaDNS)' });
   }
   if (hasBothStacks) {
     badges.push({
@@ -1094,74 +1094,6 @@ export function diagnoseCliReport(report: CliReportV1): ReportDiagnosis {
     },
   ];
 
-  // Targeted prescriptions (short, actionable, zero essays)
-  const prescriptions: PrescriptionItem[] = [];
-
-  if (anyDrift) {
-    if (report.m === 'vps') {
-      prescriptions.push({
-        id: 'vps-drift-fix',
-        tone: 'leak',
-        title: '节点 IP 已被 Google 私有库标记为受限/送中',
-        body: '更换干净落地节点，或在 VPS 出站为 Google/AI 域名配置分流出口；若为长期独享 IP，可先排查手机 GMS 定位污染，再向 Google 提交 IP 归属地纠偏。',
-        actionUrl: 'https://support.google.com/websearch/workflow/9308722',
-        actionLabel: 'Google IP 位置纠偏入口',
-      });
-    } else {
-      prescriptions.push({
-        id: 'proxy-drift-fix',
-        tone: 'leak',
-        title: '当前 Google/AI 流量命中了送中或受限节点',
-        body: '展开下方规则补丁，将 Gemini/AI 入口、隐性后端 (*-pa.googleapis.com) 及 GoogleCN 全部指向一个干净的固定美/日/新节点，避免滑入香港或直连。',
-      });
-    }
-  }
-
-  if (hasDualStackAsymmetry) {
-    prescriptions.push({
-      id: 'dualstack-fix',
-      tone: 'leak',
-      title: '关闭冲突协议栈，避免 Happy Eyeballs 撞墙',
-      body: 'Google 服务会优先走 IPv6。在代理客户端禁用 IPv6（或对 Google 规则强制 IPv4），自建 VPS 可在出站规则优先 IPv4 或停用漂移的 IPv6 出口。',
-    });
-  }
-
-  if (h4.hasAiVsGoogleSplit || h6.hasAiVsGoogleSplit) {
-    prescriptions.push({
-      id: 'group-split-fix',
-      tone: 'diff',
-      title: '收敛 AI 组与泛 Google 组到同一地区',
-      body: '当前 Gemini 与 Google Search/Play/Terms 落在不同国家；建议用下方规则补丁把 accounts / policies / www.google.com 与 AI 隐性后端收口至同一固定策略组。',
-    });
-  }
-
-  if (h4.hasCaptcha || h6.hasCaptcha) {
-    prescriptions.push({
-      id: 'captcha-fix',
-      tone: 'diff',
-      title: 'Search 触发 /sorry 验证码（但不影响 Gemini 核心可用性）',
-      body: '常见于共享出口高频搜索。若仅用 Gemini/AI Studio 可继续使用；若日常搜索频繁弹码，建议为 Google 搜索切一条负载更低的节点。',
-    });
-  }
-
-  if (hasEeaNotice) {
-    prescriptions.push({
-      id: 'eea-notice',
-      tone: 'diff',
-      title: '欧洲经济区 (EEA/UK/CH) 免费层合规提示',
-      body: '签约实体为 Google Ireland Limited。浏览器端 Gemini 网页正常，但未绑定 Cloud Billing 的免费 Gemini API Key 在欧洲节点会报 User location is not supported——此为合规限制，非送中。',
-    });
-  }
-
-  if (prescriptions.length === 0) {
-    prescriptions.push({
-      id: 'all-clean',
-      tone: 'ok',
-      title: hasSplitRoute ? '当前分流策略健康，无需折腾换节点' : '当前出口健康，无需盲目追逐家宽 IP',
-      body: '如需长期防送中，重点仅在于：代理组固定节点（关 url-test 跨国乱跳）、阻断 GoogleCN 直连、以及关闭安卓手机 Google 定位精确度（Wi-Fi/蓝牙扫描）。',
-    });
-  }
-
   return {
     tier,
     tierCode,
@@ -1183,14 +1115,6 @@ export function diagnoseCliReport(report: CliReportV1): ReportDiagnosis {
     routeClusters,
     routeAlarms,
     rows,
-    prescriptions,
-    suggestedPatch: {
-      includeAiBackend: true,
-      includeAntiGoogleCn: anyDrift || report.m === 'proxy',
-      includeGoogleCore: anyDrift || h4.hasAiVsGoogleSplit || h6.hasAiVsGoogleSplit,
-      includeGmsFcm: anyDrift,
-    },
-    suggestGmsDrawer: anyDrift,
   };
 }
 
@@ -1267,7 +1191,7 @@ export function buildDiffRows(left: CliReportV1, right: CliReportV1): readonly D
 export function buildReportMarkdown(report: CliReportV1, diag: ReportDiagnosis): string {
   const ts = new Date(report.t * 1000).toISOString().replace('T', ' ').slice(0, 19) + ' UTC';
   const lines = [
-    `## G-ROUTE // Google 生态体检报告 (${diag.tierCode})`,
+    `## G-ROUTE // 网络出口与连通性诊断报告 (${diag.tierCode})`,
     `- **结论**: ${diag.headline}`,
     `- **运行形态**: ${diag.transportLabel}`,
     `- **通用出口**: \`${diag.defaultEgress.ip}\` | AS${diag.defaultEgress.asn ?? '?'} ${diag.defaultEgress.org} (${diag.defaultEgress.kindLabel})`,

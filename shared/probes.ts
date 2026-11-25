@@ -18,7 +18,6 @@ export const DOMESTIC_DIRECT_SOURCES = {
     'https://qifu-api.baidubce.com/ip/local/geo/v1/district',
     'https://api.vore.top/api/IPdata',
   ],
-  rttProbeUrl: 'https://www.baidu.com/favicon.ico',
 } as const;
 
 export const STUN_SERVERS = {
